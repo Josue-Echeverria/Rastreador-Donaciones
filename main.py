@@ -11,6 +11,9 @@ from matplotlib.patches import FancyArrowPatch
 from datetime import datetime, timedelta
 import os
 
+# Importar las tabs modularizadas
+from tabs import mostrar_tab_partidos, mostrar_tab_cedulas, mostrar_tab_datos, mostrar_tab_contratos
+
 # Configure page to use wide layout
 st.set_page_config(
     page_title="Rastreador de Donaciones",
@@ -22,6 +25,9 @@ st.set_page_config(
 # Custom CSS to maximize content width
 st.markdown("""
 <style>
+.st-emotion-cache-zy6yx3{
+        padding-top: 3rem;
+            }
     .stTabs [data-baseweb="tab-list"] {
         gap: 2rem;
     }
@@ -59,7 +65,9 @@ def load_contratos_from_folder(folder_path):
                     st.warning(f"Skipping file {file} due to error: {e}")
 
             if dataframes:
-                return pd.concat(dataframes, ignore_index=True)
+                contratos_raw = pd.concat(dataframes, ignore_index=True)
+                print("aopfingaoív: ",len(contratos_raw))
+                return contratos_raw
             else:
                 st.error("No valid files could be loaded.")
                 return None
@@ -125,20 +133,35 @@ def preparar_contratos(df_contratos):
         st.error("No se encontró columna de cédula del proveedor")
         return None
     
+    # Buscar columna de número de contrato
+    contrato_col = None
+    for col in df.columns:
+        if any(word in col.lower() for word in ['nro', 'numero', 'contrato', 'número']):
+            contrato_col = col
+            break
+    
+    if not contrato_col:
+        st.warning("No se encontró columna de número de contrato")
+    
     # Renombrar columnas
-    df = df.rename(columns={
+    rename_dict = {
         fecha_col: 'fecha_notificacion',
         cedula_col: 'cedula_proveedor'
-    })
+    }
+    if contrato_col:
+        rename_dict[contrato_col] = 'nro_contrato'
     
-    # Convertir fecha
-    df['fecha_notificacion'] = pd.to_datetime(df['fecha_notificacion'], errors='coerce')
+    df = df.rename(columns=rename_dict)
+    
+    # Convertir fecha con formato más robusto
+    df['fecha_notificacion'] = pd.to_datetime(df['fecha_notificacion'], errors='coerce', dayfirst=True)
     
     # Normalizar cédula
     df['cedula_proveedor'] = df['cedula_proveedor'].astype(str).str.replace(r'[^0-9]', '', regex=True)
     
-    # Eliminar filas con fecha inválida
+    # Eliminar filas con fecha inválida o cédulas vacías
     df = df.dropna(subset=['fecha_notificacion'])
+    df = df[df['cedula_proveedor'].str.len() > 0]
     
     return df
 
@@ -149,8 +172,15 @@ def preparar_donaciones(df_donaciones):
     
     df = df_donaciones.copy()
     
-    # Normalizar cédula (ya se hace en el main, pero por consistencia)
+    # Normalizar cédula
     df['CÉDULA'] = df['CÉDULA'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+    
+    # Convertir fechas si existe la columna FECHA
+    if 'FECHA' in df.columns:
+        df['FECHA'] = pd.to_datetime(df['FECHA'], errors='coerce', dayfirst=True)
+    
+    # Eliminar filas con cédulas vacías
+    df = df[df['CÉDULA'].str.len() > 0]
     
     return df
 
@@ -173,21 +203,28 @@ def detectar_alertas_temporales(df_contratos, df_donaciones, ventana_meses=6):
         
         for _, donacion in donaciones.iterrows():
             for _, contrato in contratos.iterrows():
-                diferencia_dias = abs((contrato['fecha_notificacion'] - donacion['FECHA']).days)
+                # Convertir a timestamp si es necesario para el cálculo
+                fecha_donacion = pd.to_datetime(donacion['FECHA'])
+                fecha_contrato = pd.to_datetime(contrato['fecha_notificacion'])
+                
+                # Calcular diferencia usando timedelta
+                diferencia_timedelta = abs(fecha_contrato - fecha_donacion)
+                diferencia_dias = diferencia_timedelta.days
                 diferencia_meses = diferencia_dias / 30.44
                 
                 if diferencia_meses <= ventana_meses:
                     alerta = {
                         'cedula': cedula,
-                        'fecha_donacion': donacion['FECHA'],
-                        'fecha_contrato': contrato['fecha_notificacion'],
+                        'fecha_donacion': fecha_donacion,
+                        'fecha_contrato': fecha_contrato,
                         'partido_donado': donacion.get('PARTIDO POLÍTICO', 'N/A'),
                         'monto_donacion': donacion.get('MONTO', 0),
                         'diferencia_dias': diferencia_dias,
                         'diferencia_meses': diferencia_meses,
-                        'donacion_antes': donacion['FECHA'] < contrato['fecha_notificacion'],
-                        'año_donacion': donacion['FECHA'].year if pd.notna(donacion['FECHA']) else None,
-                        'año_contrato': contrato['fecha_notificacion'].year if pd.notna(contrato['fecha_notificacion']) else None
+                        'donacion_antes': fecha_donacion < fecha_contrato,
+                        'año_donacion': fecha_donacion.year if pd.notna(fecha_donacion) else None,
+                        'año_contrato': fecha_contrato.year if pd.notna(fecha_contrato) else None,
+                        'nro_contrato': contrato.get('nro_contrato', 'N/A') if 'nro_contrato' in contrato else 'N/A'
                     }
                     
                     if 'NOMBRE DEL CONTRIBUYENTE' in donacion:
@@ -223,9 +260,10 @@ def analizar_contratos_por_partido(df_contratos, df_donaciones, partido_seleccio
     if len(contratos_donantes) == 0:
         return None, None
     
-    # Agrupar por mes
-    contratos_mensuales = contratos_donantes.groupby(
-        pd.Grouper(key='fecha_notificacion', freq='M')
+    # Agrupar por mes - Asegurar que las fechas sean válidas
+    contratos_validos = contratos_donantes.dropna(subset=['fecha_notificacion']).copy()
+    contratos_mensuales = contratos_validos.groupby(
+        pd.Grouper(key='fecha_notificacion', freq='ME')
     ).size().reset_index()
     contratos_mensuales.columns = ['fecha', 'cantidad_contratos']
     
@@ -277,6 +315,13 @@ def main():
         valid_cedula_mask = aportaciones['CÉDULA'].str.len().isin([7, 8, 9]) & aportaciones['CÉDULA'].str.isdigit()
         aportaciones = aportaciones[valid_cedula_mask]
         
+        # Validación de fechas si la columna existe
+        if 'FECHA' in aportaciones.columns:
+            aportaciones['FECHA'] = pd.to_datetime(aportaciones['FECHA'], errors='coerce', dayfirst=True)
+            # Eliminar registros con fechas inválidas
+            fecha_valida_mask = aportaciones['FECHA'].notna()
+            aportaciones = aportaciones[fecha_valida_mask]
+        
         filtered_count = len(aportaciones)
         excluded_count = initial_count - filtered_count
 
@@ -296,464 +341,23 @@ def main():
         tab1, tab2, tab3, tab4 = st.tabs(["Partidos", "Cédulas", "Datos", "Análisis de Contratos"])
 
         with tab1:
-            st.header("Análisis de Partidos Políticos")
-            
-            aportaciones_valid_dates = aportaciones.dropna(subset=['FECHA'])
-            aportaciones_valid_dates['MONTH_YEAR'] = aportaciones_valid_dates['FECHA'].dt.to_period('M')
-            monthly_income = aportaciones_valid_dates.groupby(['PARTIDO POLÍTICO', 'MONTH_YEAR'])['MONTO'].sum().reset_index()
-            monthly_income['MONTH_YEAR'] = monthly_income['MONTH_YEAR'].dt.to_timestamp()
-            
-            top_parties_list = top_20.index.tolist()
-            monthly_income_filtered = monthly_income[monthly_income['PARTIDO POLÍTICO'].isin(top_parties_list)].copy()
-            monthly_income_filtered['MONTO'] = monthly_income_filtered['MONTO'] / 1_000_000
-            monthly_income_filtered['YEAR'] = monthly_income_filtered['MONTH_YEAR'].dt.to_period('Y').astype(str)
-            
-            yearly_income = monthly_income_filtered.groupby(['PARTIDO POLÍTICO', 'YEAR'])['MONTO'].sum().reset_index()
-                    
-            st.subheader("Ingresos Anuales por Partido")
-            # Gráfico interactivo con Plotly y colores consistentes
-            fig_income = px.bar(
-                yearly_income, 
-                x='YEAR', 
-                y='MONTO', 
-                color='PARTIDO POLÍTICO',
-                color_discrete_map=party_colors,
-                labels={'MONTO': 'Ingresos (Millones ₡)', 'YEAR': 'Año'},
-                height=500
-            )
-            fig_income.update_layout(
-                xaxis_tickangle=-45,
-                showlegend=True,
-                legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02)
-            )
-            st.plotly_chart(fig_income, use_container_width=True)
-            col1, col2 = st.columns([2, 1])
-            
-            with col1:
-                st.subheader("Distribución de Aportaciones por Cantidad")
-                # Gráfico circular interactivo por cantidad con colores consistentes
-                top_20_colors = [party_colors[party] for party in top_20.index]
-                fig_pie = px.pie(
-                    values=top_20.values,
-                    names=top_20.index,
-                    height=500,
-                    color_discrete_sequence=top_20_colors
-                )
-                fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-                fig_pie.update_layout(showlegend=False)
-                st.plotly_chart(fig_pie, use_container_width=True)
-                
-                st.subheader("Distribución de Ingresos por Monto Total")
-                # Calcular montos totales por partido
-                party_total_amounts = active_aportaciones.groupby('PARTIDO POLÍTICO')['MONTO'].sum()
-                top_amounts_parties = party_total_amounts.nlargest(10)
-                
-                # Gráfico circular por monto total con colores consistentes
-                top_amounts_colors = [party_colors[party] for party in top_amounts_parties.index]
-                fig_pie_amount = px.pie(
-                    values=top_amounts_parties.values,
-                    names=top_amounts_parties.index,
-                    height=500,
-                    color_discrete_sequence=top_amounts_colors
-                )
-                fig_pie_amount.update_traces(
-                    textposition='inside', 
-                    textinfo='percent+label',
-                    hovertemplate='<b>%{label}</b><br>Monto: ₡%{value:,.0f}<br>Porcentaje: %{percent}<extra></extra>'
-                )
-                fig_pie_amount.update_layout(showlegend=False)
-                st.plotly_chart(fig_pie_amount, use_container_width=True)
-
-            with col2:
-                st.subheader("Resumen")
-                st.metric("Total Partidos Activos", len(active_aportaciones['PARTIDO POLÍTICO'].unique()))
-                st.metric("Total Aportaciones", len(active_aportaciones))
-                st.metric("Partido Líder (Cantidad)", top_20.index[0] if len(top_20) > 0 else "N/A")
-                
-                # Calcular partido líder por monto
-                party_total_amounts = active_aportaciones.groupby('PARTIDO POLÍTICO')['MONTO'].sum()
-                top_amount_party = party_total_amounts.nlargest(1)
-                st.metric("Partido Líder (Monto)", top_amount_party.index[0] if len(top_amount_party) > 0 else "N/A")
-                
-                total_income = aportaciones['MONTO'].sum()
-                avg_donation = aportaciones['MONTO'].mean()
-                max_donation = aportaciones['MONTO'].max()
-                
-                st.metric("Total Recaudado", f"₡{total_income:,.0f}")
-                st.metric("Donación Promedio", f"₡{avg_donation:,.0f}")
-                st.metric("Donación Máxima", f"₡{max_donation:,.0f}")
-                
-                st.subheader("Top 3 Partidos por Monto")
-                top_3_amounts = party_total_amounts.nlargest(3)
-                for i, (partido, monto) in enumerate(top_3_amounts.items(), 1):
-                    st.metric(f"{i}. {partido[:20]}...", f"₡{monto:,.0f}")
+            mostrar_tab_partidos(aportaciones, party_colors)
         
         with tab2:
-            
-            cedula_counts = aportaciones['CÉDULA'].value_counts()
-            cedula_amounts = aportaciones.groupby('CÉDULA')['MONTO'].sum()
-            
-            col1, col2 = st.columns([2, 1])
-            
-            with col1:
-                st.subheader("Top 20 Donantes por Monto Total")
-                top_amounts = cedula_amounts.nlargest(20)
-                amount_data = pd.DataFrame({
-                    'Cédula': top_amounts.index,
-                    'Monto Total': top_amounts.values,
-                    'Cantidad de Donaciones': cedula_counts.loc[top_amounts.index]
-                }).reset_index(drop=True)
-                amount_data.index = amount_data.index + 1
-                
-                st.dataframe(
-                    amount_data,
-                    column_config={
-                        "Monto Total": st.column_config.ProgressColumn(
-                            "Monto Total (₡)",
-                            help="Monto total donado por cada cédula",
-                            min_value=0,
-                            max_value=int(amount_data['Monto Total'].max()),
-                            format="₡%.0f"
-                        )
-                    },
-                    use_container_width=True
-                )
-                
-                st.subheader("Visualización de Donantes")
-                
-                # Gráfico de dispersión interactivo
-                fig_scatter = px.scatter(
-                    amount_data,
-                    x='Cantidad de Donaciones',
-                    y='Monto Total',
-                    hover_data=['Cédula'],
-                    title='Relación entre Cantidad de Donaciones y Monto Total',
-                    labels={'Monto Total': 'Monto Total (₡)', 'Cantidad de Donaciones': 'Número de Donaciones'},
-                    size='Monto Total',
-                    color='Cantidad de Donaciones',
-                    color_continuous_scale='viridis',
-                    height=500
-                )
-                fig_scatter.update_layout(showlegend=False)
-                st.plotly_chart(fig_scatter, use_container_width=True)
-            
-            with col2:
-                st.subheader("Estadísticas de Donantes")
-                
-                total_donors = len(aportaciones['CÉDULA'].unique())
-                repeat_donors = len(cedula_counts[cedula_counts > 1])
-                top_donor_amount = cedula_amounts.max()
-                top_donor_count = cedula_counts.max()
-                
-                st.metric("Total Donantes", total_donors)
-                st.metric("Donantes Recurrentes", repeat_donors)
-                st.metric("Mayor Donación", f"₡{top_donor_amount:,.0f}")
-                st.metric("Más Donaciones", f"{top_donor_count} veces")
+            mostrar_tab_cedulas(aportaciones)
         
-        with tab3:            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.subheader("Datos de Aportaciones")
-                st.dataframe(aportaciones.head(20), use_container_width=True)
-                
-                csv = aportaciones.to_csv(index=False)
-                st.download_button(
-                    label="Descargar CSV completo",
-                    data=csv,
-                    file_name='aportaciones.csv',
-                    mime='text/csv'
-                )
-            
-            with col2:
-                st.subheader("Información General")
-                
-                st.write("**Resumen del Dataset:**")
-                st.write(f"- Total de registros: {len(aportaciones):,}")
-                st.write(f"- Columnas: {len(aportaciones.columns)}")
-                st.write(f"- Período: {aportaciones['FECHA'].min().strftime('%Y-%m-%d')} a {aportaciones['FECHA'].max().strftime('%Y-%m-%d')}")
-                
-                st.subheader("Columnas Disponibles")
-                for col in aportaciones.columns:
-                    non_null = aportaciones[col].notna().sum()
-                    st.write(f"- **{col}**: {non_null:,} valores")
-                
-                if 'contratos' in st.session_state:
-                    st.subheader("Datos de Contratos")
-                    contratos = st.session_state['contratos']
-                    st.dataframe(contratos.head(10), use_container_width=True)
-                    
-                    cedula_contracts = contratos['Cédula Proveedor'].value_counts().head(10)
-                    st.write("**Top 10 Proveedores por Contratos:**")
-                    st.dataframe(cedula_contracts.reset_index(), use_container_width=True)
+        with tab3:
+            mostrar_tab_datos(aportaciones)
         
         with tab4:
-            st.markdown("""
-            <div style="background: linear-gradient(135deg, rgba(43, 24, 16, 0.1), rgba(255, 140, 0, 0.1)); 
-                        padding: 1.5rem; border-radius: 15px; margin-bottom: 2rem; border-left: 5px solid #ff8c00;">
-                <h2 style="color: #2b1810; margin: 0; font-size: 1.8rem;">
-                    Análisis de Contratos Post-Electorales
-                </h2>
-                <p style="color: #5d3317; margin: 0.5rem 0 0 0;">
-                    Análisis de la relación temporal entre donaciones políticas y contratos gubernamentales
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Cargar contratos automáticamente desde la carpeta
-            contratos_folder = "c:\\Users\\Asus\\Desktop\\Rastreador-Donaciones\\Contratos"
-            contratos_raw = load_contratos_from_folder(contratos_folder)
-            
-            if contratos_raw is not None:
-                # Preparar datos
-                contratos_prep = preparar_contratos(contratos_raw)
-                donaciones_prep = preparar_donaciones(aportaciones)
-                
-                if contratos_prep is not None and donaciones_prep is not None:
-                    
-                    # Encontrar coincidencias
-                    cedulas_contratos = set(contratos_prep['cedula_proveedor'].unique())
-                    cedulas_donaciones = set(donaciones_prep['CÉDULA'].unique())
-                    coincidencias = cedulas_contratos & cedulas_donaciones
-                    
-                    # Métricas principales
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        st.markdown("""
-                        <div style="background: linear-gradient(135deg, #ff8c00, #ffa500); padding: 1.5rem; border-radius: 15px; text-align: center; box-shadow: 0 4px 8px rgba(43, 24, 16, 0.3);">
-                            <h3 style="color: white; margin: 0; font-size: 1.1rem;">Total Contratos</h3>
-                            <h2 style="color: white; margin: 0.5rem 0 0 0; font-size: 2rem;">{:,}</h2>
-                        </div>
-                        """.format(len(contratos_prep)), unsafe_allow_html=True)
-                    
-                    with col2:
-                        st.markdown("""
-                        <div style="background: linear-gradient(135deg, #ffffff00, #ff8c00); padding: 1.5rem; border-radius: 15px; text-align: center; box-shadow: 0 4px 8px rgba(43, 24, 16, 0.3);">
-                            <h3 style="color: white; margin: 0; font-size: 1.1rem;">Proveedores Únicos</h3>
-                            <h2 style="color: white; margin: 0.5rem 0 0 0; font-size: 2rem;">{:,}</h2>
-                        </div>
-                        """.format(len(cedulas_contratos)), unsafe_allow_html=True)
-                    
-                    with col3:
-                        st.markdown("""
-                        <div style="background: linear-gradient(135deg, #ffffff00, #d2691e); padding: 1.5rem; border-radius: 15px; text-align: center; box-shadow: 0 4px 8px rgba(43, 24, 16, 0.3);">
-                            <h3 style="color: white; margin: 0; font-size: 1.1rem;">Donantes Únicos</h3>
-                            <h2 style="color: white; margin: 0.5rem 0 0 0; font-size: 2rem;">{:,}</h2>
-                        </div>
-                        """.format(len(cedulas_donaciones)), unsafe_allow_html=True)
-                    
-                    with col4:
-                        st.markdown("""
-                        <div style="background: linear-gradient(135deg, #ffffff00, #8b4513); padding: 1.5rem; border-radius: 15px; text-align: center; box-shadow: 0 4px 8px rgba(43, 24, 16, 0.3);">
-                            <h3 style="color: white; margin: 0; font-size: 1.1rem;">Coincidencias</h3>
-                            <h2 style="color: white; margin: 0.5rem 0 0 0; font-size: 2rem;">{:,}</h2>
-                        </div>
-                        """.format(len(coincidencias)), unsafe_allow_html=True)
-                    
-                    # Controles para el análisis
-                    st.markdown("### Configuración del Análisis")
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        ventana_meses = st.slider(
-                            "Ventana temporal para alertas (meses)",
-                            min_value=1,
-                            max_value=24,
-                            value=6,
-                            help="Período máximo entre donación y contrato para generar alerta"
-                        )
-                    
-                    with col2:
-                        partidos_disponibles = ['Todos'] + sorted(donaciones_prep['PARTIDO POLÍTICO'].unique().tolist())
-                        partido_filtro = st.selectbox(
-                            "Filtrar por partido político",
-                            partidos_disponibles,
-                            help="Analizar solo donantes de un partido específico"
-                        )
-                    
-                    # Detectar alertas
-                    if st.button("Analizar Alertas Temporales", type="primary"):
-                        with st.spinner("Analizando relaciones temporales..."):
-                            alertas = detectar_alertas_temporales(contratos_prep, donaciones_prep, ventana_meses)
-                            
-                            if partido_filtro != 'Todos':
-                                alertas = alertas[alertas['partido_donado'].str.upper() == partido_filtro.upper()]
-                            
-                            if len(alertas) > 0:
-                                st.success(f"Se detectaron {len(alertas)} alertas temporales")
-                                
-                                # Mostrar estadísticas de alertas
-                                st.markdown("### Resumen de Alertas")
-                                
-                                col1, col2, col3 = st.columns(3)
-                                
-                                with col1:
-                                    diferencia_min = alertas['diferencia_dias'].min()
-                                    st.metric("Menor diferencia", f"{int(diferencia_min)} días")
-                                
-                                with col2:
-                                    diferencia_promedio = alertas['diferencia_dias'].mean()
-                                    st.metric("Diferencia promedio", f"{diferencia_promedio:.1f} días")
-                                
-                                with col3:
-                                    donaciones_antes = (alertas['donacion_antes'] == True).sum()
-                                    st.metric("Donaciones antes del contrato", f"{donaciones_antes}/{len(alertas)}")
-                                
-                                # Distribución por partido (solo si no se filtró)
-                                if partido_filtro == 'Todos':
-                                    st.markdown("### Alertas por Partido")
-                                    alertas_por_partido = alertas['partido_donado'].value_counts().head(10)
-                                    
-                                    fig_alertas = px.bar(
-                                        x=alertas_por_partido.values,
-                                        y=alertas_por_partido.index,
-                                        orientation='h',
-                                        title='Top 10 Partidos con Más Alertas',
-                                        labels={'x': 'Número de Alertas', 'y': 'Partido Político'},
-                                        color=alertas_por_partido.values,
-                                        color_continuous_scale='Reds',
-                                        height=400
-                                    )
-                                    fig_alertas.update_layout(showlegend=False)
-                                    st.plotly_chart(fig_alertas, use_container_width=True)
-                                
-                                # Visualización temporal
-                                st.markdown("### Distribución Temporal de Alertas")
-                                
-                                # Gráfico de dispersión de alertas
-                                fig_scatter = px.scatter(
-                                    alertas,
-                                    x='fecha_donacion',
-                                    y='fecha_contrato',
-                                    color='partido_donado',
-                                    size='monto_donacion',
-                                    hover_data=['cedula', 'diferencia_dias'],
-                                    title='Relación Temporal: Donaciones vs Contratos',
-                                    labels={
-                                        'fecha_donacion': 'Fecha de Donación',
-                                        'fecha_contrato': 'Fecha de Contrato',
-                                        'partido_donado': 'Partido'
-                                    },
-                                    height=500
-                                )
-                                
-                                # Añadir línea diagonal para mostrar casos donde donación = contrato
-                                min_fecha = min(alertas['fecha_donacion'].min(), alertas['fecha_contrato'].min())
-                                max_fecha = max(alertas['fecha_donacion'].max(), alertas['fecha_contrato'].max())
-                                
-                                fig_scatter.add_trace(
-                                    go.Scatter(
-                                        x=[min_fecha, max_fecha],
-                                        y=[min_fecha, max_fecha],
-                                        mode='lines',
-                                        line=dict(color='red', dash='dash'),
-                                        name='Línea de Referencia',
-                                        showlegend=True
-                                    )
-                                )
-                                
-                                st.plotly_chart(fig_scatter, use_container_width=True)
-                                
-                                # Tabla de alertas más críticas
-                                st.markdown("### Top 20 Alertas Más Críticas")
-                                alertas_criticas = alertas.nsmallest(20, 'diferencia_dias')
-                                
-                                # Preparar datos para mostrar
-                                tabla_alertas = alertas_criticas[['cedula', 'partido_donado', 'fecha_donacion', 
-                                                                'fecha_contrato', 'diferencia_dias', 'monto_donacion', 
-                                                                'donacion_antes']].copy()
-                                
-                                tabla_alertas['secuencia'] = tabla_alertas['donacion_antes'].map({
-                                    True: 'Donación → Contrato',
-                                    False: 'Contrato → Donación'
-                                })
-                                
-                                tabla_alertas = tabla_alertas.drop('donacion_antes', axis=1)
-                                tabla_alertas.columns = ['Cédula', 'Partido', 'Fecha Donación', 'Fecha Contrato', 
-                                                       'Días Diferencia', 'Monto Donación', 'Secuencia']
-                                
-                                st.dataframe(
-                                    tabla_alertas,
-                                    column_config={
-                                        "Monto Donación": st.column_config.NumberColumn(
-                                            "Monto Donación (₡)",
-                                            format="₡%.0f"
-                                        ),
-                                        "Días Diferencia": st.column_config.NumberColumn(
-                                            "Días de Diferencia",
-                                            format="%.0f días"
-                                        )
-                                    },
-                                    use_container_width=True
-                                )
-                                
-                                # Opción de descarga
-                                csv_alertas = alertas.to_csv(index=False)
-                                st.download_button(
-                                    label="Descargar Alertas (CSV)",
-                                    data=csv_alertas,
-                                    file_name=f'alertas_contratos_{ventana_meses}meses.csv',
-                                    mime='text/csv'
-                                )
-                                
-                            else:
-                                if partido_filtro != 'Todos':
-                                    st.info(f"No se detectaron alertas para {partido_filtro} en una ventana de {ventana_meses} meses")
-                                else:
-                                    st.info(f"No se detectaron alertas temporales en una ventana de {ventana_meses} meses")
-                    
-                    # Análisis general de coincidencias
-                    st.markdown("### Análisis de Coincidencias Generales")
-                    
-                    if len(coincidencias) > 0:
-                        contratos_coincidencias = contratos_prep[
-                            contratos_prep['cedula_proveedor'].isin(coincidencias)
-                        ]
-                        
-                        # Distribución temporal de contratos de donantes
-                        contratos_mensuales = contratos_coincidencias.groupby(
-                            pd.Grouper(key='fecha_notificacion', freq='M')
-                        ).size().reset_index()
-                        contratos_mensuales.columns = ['fecha', 'cantidad_contratos']
-                        
-                        if len(contratos_mensuales) > 0:
-                            fig_temporal = px.line(
-                                contratos_mensuales,
-                                x='fecha',
-                                y='cantidad_contratos',
-                                title='Evolución Temporal de Contratos (Proveedores que son Donantes)',
-                                labels={'fecha': 'Fecha', 'cantidad_contratos': 'Contratos por Mes'},
-                                height=400
-                            )
-                            
-                            # Marcar elecciones
-                            elecciones = [
-                                {'fecha': '2010-02-07', 'partido': 'PLN'},
-                                {'fecha': '2014-02-02', 'partido': 'PAC'},
-                                {'fecha': '2018-04-01', 'partido': 'PAC'},
-                                {'fecha': '2022-04-03', 'partido': 'PPSD'}
-                            ]
-                            
-                            for eleccion in elecciones:
-                                fecha_elec = pd.to_datetime(eleccion['fecha'])
-                                if (fecha_elec >= contratos_mensuales['fecha'].min() and 
-                                    fecha_elec <= contratos_mensuales['fecha'].max()):
-                                    fig_temporal.add_vline(
-                                        x=fecha_elec,
-                                        line_dash="dash",
-                                        line_color="red",
-                                        annotation_text=f"Elección {eleccion['partido']}"
-                                    )
-                            
-                            st.plotly_chart(fig_temporal, use_container_width=True)
-                    else:
-                        st.info("No se encontraron coincidencias entre donantes y proveedores")
-                
-                else:
-                    st.error("No se pudieron preparar los datos de contratos o donaciones")
-            else:
-                st.warning("No se pudieron cargar los contratos. Verifique que la carpeta 'Contratos' esté disponible.")
+            mostrar_tab_contratos(
+                aportaciones, 
+                contratos_folder, 
+                preparar_contratos, 
+                preparar_donaciones, 
+                detectar_alertas_temporales, 
+                load_contratos_from_folder
+            )
     
     else:
         st.markdown("""
