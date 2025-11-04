@@ -161,15 +161,20 @@ def _mostrar_tabla_alertas(alertas):
     """Muestra la tabla detallada de alertas"""
     st.markdown("### Tabla Detallada de Alertas")
     
-    # Preparar datos para la tabla
+    # Preparar datos para la tabla con anonimización
     tabla_alertas = alertas.copy()
-    tabla_alertas['cedula_enmascarada'] = tabla_alertas['cedula']
+    
+    # Crear mapeo anónimo de cédulas a IDs
+    cedulas_unicas = tabla_alertas['cedula'].unique()
+    mapeo_anonimo = {cedula: f"Persona {i+1}" for i, cedula in enumerate(cedulas_unicas)}
+    tabla_alertas['cedula_anonima'] = tabla_alertas['cedula'].map(mapeo_anonimo)
+    
     tabla_alertas['fecha_contrato_str'] = tabla_alertas['fecha_contrato'].dt.strftime('%Y-%m-%d')
     tabla_alertas['monto_formateado'] = tabla_alertas['monto_total_donaciones'].apply(lambda x: f"₡{x:,.0f}")
     
     # Seleccionar y renombrar columnas para mostrar
     columnas_mostrar = {
-        'cedula_enmascarada': 'ID Persona',
+        'cedula_anonima': 'ID Persona',
         'nro_contrato': 'Número Contrato',
         'fecha_contrato_str': 'Fecha Contrato',
         'cantidad_donaciones': 'Cantidad Donaciones',
@@ -248,8 +253,8 @@ def _mostrar_top_proveedores(contratos_prep):
                            .head(30)
                            .reset_index(drop=True))
         
-        # Etiqueta con ranking
-        proveedor_stats['Etiqueta'] = proveedor_stats.index.map(lambda i: f"#{i+1} - {proveedor_stats.loc[i, 'Proveedor']}")
+        # Etiqueta con ranking anonimizada
+        proveedor_stats['Etiqueta'] = proveedor_stats.index.map(lambda i: f"Persona {i+1}")
         
         # Crear gráfico de barras apiladas
         fig = go.Figure()
@@ -459,7 +464,7 @@ def _mostrar_top_proveedores(contratos_prep):
         st.markdown("### Top 5 Proveedores - Análisis Detallado")
         
         for i, row in proveedor_stats.head(5).iterrows():
-            with st.expander(f"#{i+1} - {row['Proveedor']} ({int(row['Contratos_Unicos']):,} únicos, {row['Pct_Duplicados']:.1f}% duplicados)"):
+            with st.expander(f"Persona {i+1} ({int(row['Contratos_Unicos']):,} únicos, {row['Pct_Duplicados']:.1f}% duplicados)"):
                 col_det1, col_det2, col_det3, col_det4 = st.columns(4)
                 with col_det1:
                     st.metric("Contratos únicos", f"{int(row['Contratos_Unicos']):,}")

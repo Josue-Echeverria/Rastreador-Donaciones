@@ -109,8 +109,12 @@ def mostrar_tab_partidos(aportaciones, party_colors):
         cedula_amounts = aportaciones.groupby('CÉDULA')['MONTO'].sum()
         st.subheader("Top 20 Donantes por Monto Total")
         top_amounts = cedula_amounts.nlargest(20)
+        
+        # Crear mapeo anónimo para las cédulas
+        cedulas_anonimas = [f"Persona {i+1}" for i in range(len(top_amounts))]
+        
         amount_data = pd.DataFrame({
-            'Cédula': top_amounts.index,
+            'ID Persona': cedulas_anonimas,
             'Monto Total': top_amounts.values,
             'Cantidad de Donaciones': cedula_counts.loc[top_amounts.index]
         }).reset_index(drop=True)
@@ -121,7 +125,7 @@ def mostrar_tab_partidos(aportaciones, party_colors):
             column_config={
                 "Monto Total": st.column_config.ProgressColumn(
                     "Monto Total (₡)",
-                    help="Monto total donado por cada cédula",
+                    help="Monto total donado por cada persona",
                     min_value=0,
                     max_value=int(amount_data['Monto Total'].max()),
                     format="₡%.0f"
