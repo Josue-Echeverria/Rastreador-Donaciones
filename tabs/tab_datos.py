@@ -29,11 +29,11 @@ def mostrar_tab_datos(aportaciones):
             non_null = aportaciones[col].notna().sum()
             st.write(f"- **{col}**: {non_null:,} valores")
         
-        if 'contratos' in st.session_state:
-            st.subheader("Datos de Contratos")
-            contratos = st.session_state['contratos']
-            st.dataframe(contratos.head(10), use_container_width=True)
-            
-            cedula_contracts = contratos['Cédula Proveedor'].value_counts().head(10)
-            st.write("**Top 10 Proveedores por Contratos:**")
-            st.dataframe(cedula_contracts.reset_index(), use_container_width=True)
+    if 'contratos' in st.session_state:
+        st.subheader("Datos de Contratos")
+        contratos = st.session_state['contratos']
+        st.dataframe(contratos.head(10), use_container_width=True)
+        
+        cedula_contracts = contratos['Cédula Proveedor'].value_counts().head(10)
+        st.write("**Top 10 Proveedores por Contratos:**")
+        st.dataframe(cedula_contracts.reset_index(), use_container_width=True)
