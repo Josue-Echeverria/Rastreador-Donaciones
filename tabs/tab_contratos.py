@@ -118,13 +118,13 @@ def mostrar_tab_contratos(aportaciones, preparar_donaciones):
 
                 crear_grafico_acumulacion_anual(contratos_temp)
                 
+                # Análisis de top proveedores
+                _mostrar_top_proveedores(contratos_prep)
+                
                 # Mostrar estadísticas y visualizaciones
                 _mostrar_graficos_alertas(alertas)
                 _mostrar_tabla_alertas(alertas)
 
-                
-                # Análisis de top proveedores
-                _mostrar_top_proveedores(contratos_prep)
                 
             else:
                 st.info("No se detectaron alertas temporales en una ventana de 12 meses")
@@ -320,8 +320,8 @@ def _mostrar_top_proveedores(contratos_prep):
             plot_bgcolor='rgba(255,255,255,0.95)',
             paper_bgcolor='rgba(255,255,255,0.95)',
             font=dict(color='#2F1000', size=11),
-            height=900,
-            margin=dict(l=250, r=40, t=90, b=60),
+            height=700,
+            margin=dict(l=120, r=50, t=20, b=60),  # Reducir margen izquierdo y derecho
             legend=dict(
                 font=dict(color='#2F1000'),
                 bgcolor='rgba(255,255,255,0.9)',
@@ -341,154 +341,122 @@ def _mostrar_top_proveedores(contratos_prep):
             title_font=dict(color='#2F1000')
         )
         
-        # Mostrar gráfico
-        st.plotly_chart(fig, use_container_width=True)
+        # Layout en dos columnas para gráfico de barras y pie chart
+        col_bar, col_pie = st.columns([2, 1])
         
-        # Gráfico de concentración de contratos (pie chart)
-        st.markdown("#### 📊 Concentración de Contratos por Proveedores")
+        with col_bar:
+            st.markdown("#### Top 30 Proveedores - Ranking Detallado")
+            # Mostrar gráfico de barras
+            st.plotly_chart(fig, use_container_width=True)
         
-        # Obtener todos los proveedores ordenados por contratos únicos
-        todos_proveedores = (
-            contratos_validos.groupby('Cédula Proveedor')
-              .agg(Contratos_Unicos=('Nro Contrato', 'nunique'))
-              .reset_index()
-              .sort_values('Contratos_Unicos', ascending=False)
-        )
-        
-        # Calcular concentración
-        total_contratos = todos_proveedores['Contratos_Unicos'].sum()
-        top_10_contratos = todos_proveedores.head(10)['Contratos_Unicos'].sum()
-        top_11_50_contratos = todos_proveedores.iloc[10:50]['Contratos_Unicos'].sum() if len(todos_proveedores) > 10 else 0
-        resto_contratos = total_contratos - top_10_contratos - top_11_50_contratos
-        
-        # Preparar datos para el pie chart
-        concentracion_data = {
-            'Grupo': ['Top 1-10', 'Top 11-50', 'Resto (51+)'],
-            'Contratos': [top_10_contratos, top_11_50_contratos, resto_contratos],
-            'Porcentaje': [
-                (top_10_contratos / total_contratos) * 100,
-                (top_11_50_contratos / total_contratos) * 100,
-                (resto_contratos / total_contratos) * 100
-            ]
-        }
-        
-        # Filtrar grupos con valor > 0
-        datos_filtrados = {
-            'Grupo': [],
-            'Contratos': [],
-            'Porcentaje': []
-        }
-        
-        for i, grupo in enumerate(concentracion_data['Grupo']):
-            if concentracion_data['Contratos'][i] > 0:
-                datos_filtrados['Grupo'].append(grupo)
-                datos_filtrados['Contratos'].append(concentracion_data['Contratos'][i])
-                datos_filtrados['Porcentaje'].append(concentracion_data['Porcentaje'][i])
-        
-        # Crear pie chart
-        fig_pie = go.Figure(data=[go.Pie(
-            labels=datos_filtrados['Grupo'],
-            values=datos_filtrados['Contratos'],
-            hole=0.4,  # Donut chart
-            marker=dict(
-                colors=['#C75000', '#945600', '#621B00'],
-                line=dict(color='white', width=2)
-            ),
-            textinfo='label+percent',
-            textposition='outside',
-            textfont=dict(size=12, color='#2F1000', family='Arial Bold'),
-            hovertemplate=(
-                '<b>%{label}</b><br>' +
-                'Contratos: %{value:,}<br>' +
-                'Porcentaje: %{percent}<br>' +
-                '<extra></extra>'
+        with col_pie:
+            st.markdown("#### Concentración de Mercado")
+            
+            # Obtener todos los proveedores ordenados por contratos únicos
+            todos_proveedores = (
+                contratos_validos.groupby('Cédula Proveedor')
+                  .agg(Contratos_Unicos=('Nro Contrato', 'nunique'))
+                  .reset_index()
+                  .sort_values('Contratos_Unicos', ascending=False)
             )
-        )])
-        
-        fig_pie.update_layout(
-            title=dict(
-                text='<b>Distribución de Contratos por Grupos de Proveedores</b>',
-                font=dict(size=16, color='#2F1000'),
-                x=0.5,
-                xanchor='center'
-            ),
-            font=dict(color='#2F1000', size=11),
-            showlegend=True,
-            legend=dict(
-                orientation="v",
-                yanchor="middle",
-                y=0.5,
-                xanchor="left",
-                x=1.05,
-                font=dict(color='#2F1000', size=11)
-            ),
-            height=400,
-            margin=dict(l=20, r=120, t=60, b=20),
-            plot_bgcolor='rgba(255,255,255,0.95)',
-            paper_bgcolor='rgba(255,255,255,0.95)'
-        )
-        
-        # Agregar texto en el centro del donut
-        fig_pie.add_annotation(
-            text=f"<b>Total<br>{total_contratos:,}<br>Contratos</b>",
-            x=0.5, y=0.5,
-            font=dict(size=14, color='#2F1000', family='Arial Bold'),
-            showarrow=False
-        )
-        
-        st.plotly_chart(fig_pie, use_container_width=True)
-        
-        # Métricas de concentración
-        col_conc1, col_conc2, col_conc3 = st.columns(3)
-        
-        with col_conc1:
-            st.markdown(f"""
-            <div style="background: linear-gradient(135deg, #C75000, #945600); padding: 1.5rem; border-radius: 15px; text-align: center; box-shadow: 0 4px 8px rgba(47, 16, 0, 0.3);">
-                <h3 style="color: white; margin: 0; font-size: 1.1rem;">Top 10 Proveedores</h3>
-                <h2 style="color: white; margin: 0.5rem 0 0 0; font-size: 1.8rem;">{(top_10_contratos/total_contratos)*100:.1f}%</h2>
-                <p style="color: white; margin: 0; font-size: 0.9rem;">{top_10_contratos:,} contratos</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col_conc2:
+            
+            # Calcular concentración
+            total_contratos = todos_proveedores['Contratos_Unicos'].sum()
+            top_10_contratos = todos_proveedores.head(10)['Contratos_Unicos'].sum()
+            top_11_50_contratos = todos_proveedores.iloc[10:50]['Contratos_Unicos'].sum() if len(todos_proveedores) > 10 else 0
+            resto_contratos = total_contratos - top_10_contratos - top_11_50_contratos
+            
+            # Preparar datos para el pie chart
+            concentracion_data = {
+                'Grupo': ['Top 1-10', 'Top 11-50', 'Resto (51+)'],
+                'Contratos': [top_10_contratos, top_11_50_contratos, resto_contratos],
+                'Porcentaje': [
+                    (top_10_contratos / total_contratos) * 100,
+                    (top_11_50_contratos / total_contratos) * 100,
+                    (resto_contratos / total_contratos) * 100
+                ]
+            }
+            
+            # Filtrar grupos con valor > 0
+            datos_filtrados = {
+                'Grupo': [],
+                'Contratos': [],
+                'Porcentaje': []
+            }
+            
+            for i, grupo in enumerate(concentracion_data['Grupo']):
+                if concentracion_data['Contratos'][i] > 0:
+                    datos_filtrados['Grupo'].append(grupo)
+                    datos_filtrados['Contratos'].append(concentracion_data['Contratos'][i])
+                    datos_filtrados['Porcentaje'].append(concentracion_data['Porcentaje'][i])
+            
+            # Crear pie chart más compacto
+            fig_pie = go.Figure(data=[go.Pie(
+                labels=datos_filtrados['Grupo'],
+                values=datos_filtrados['Contratos'],
+                hole=0.4,  # Donut chart
+                marker=dict(
+                    colors=['#C75000', '#945600', '#621B00'],
+                    line=dict(color='white', width=2)
+                ),
+                textinfo='label+percent',
+                textposition='outside',
+                textfont=dict(size=10, color='#2F1000', family='Arial Bold'),
+                hovertemplate=(
+                    '<b>%{label}</b><br>' +
+                    'Contratos: %{value:,}<br>' +
+                    'Porcentaje: %{percent}<br>' +
+                    '<extra></extra>'
+                )
+            )])
+            
+            fig_pie.update_layout(
+                font=dict(color='#2F1000', size=9),
+                showlegend=True,
+                legend=dict(
+                    orientation="v",
+                    yanchor="bottom",
+                    y=0,
+                    xanchor="center",
+                    x=0.5,
+                    font=dict(color='#2F1000', size=9)
+                ),
+                height=400,
+                margin=dict(l=10, r=10, t=10, b=40),
+                plot_bgcolor='rgba(255,255,255,0.95)',
+                paper_bgcolor='rgba(255,255,255,0.95)'
+            )
+            
+            # Agregar texto en el centro del donut
+            fig_pie.add_annotation(
+                text=f"<b>Total<br>{total_contratos:,}<br>Contratos</b>",
+                x=0.5, y=0.5,
+                font=dict(size=12, color='#2F1000', family='Arial Bold'),
+                showarrow=False
+            )
+            
+            st.plotly_chart(fig_pie, use_container_width=True)
+            
+            # Métricas de concentración compactas
+            st.markdown("##### 📈 Métricas de Concentración")
+            
+            st.metric("🥇 Top 10", f"{(top_10_contratos/total_contratos)*100:.1f}%", 
+                     f"{top_10_contratos:,} contratos")
+            
             if top_11_50_contratos > 0:
-                st.markdown(f"""
-                <div style="background: linear-gradient(135deg, #945600, #621B00); padding: 1.5rem; border-radius: 15px; text-align: center; box-shadow: 0 4px 8px rgba(47, 16, 0, 0.3);">
-                    <h3 style="color: white; margin: 0; font-size: 1.1rem;">Top 11-50</h3>
-                    <h2 style="color: white; margin: 0.5rem 0 0 0; font-size: 1.8rem;">{(top_11_50_contratos/total_contratos)*100:.1f}%</h2>
-                    <p style="color: white; margin: 0; font-size: 0.9rem;">{top_11_50_contratos:,} contratos</p>
-                </div>
-                """, unsafe_allow_html=True)
+                st.metric("🥈 Top 11-50", f"{(top_11_50_contratos/total_contratos)*100:.1f}%", 
+                         f"{top_11_50_contratos:,} contratos")
             else:
-                st.markdown("""
-                <div style="background: linear-gradient(135deg, #945600, #621B00); padding: 1.5rem; border-radius: 15px; text-align: center; box-shadow: 0 4px 8px rgba(47, 16, 0, 0.3);">
-                    <h3 style="color: white; margin: 0; font-size: 1.1rem;">Top 11-50</h3>
-                    <h2 style="color: white; margin: 0.5rem 0 0 0; font-size: 1.8rem;">0%</h2>
-                    <p style="color: white; margin: 0; font-size: 0.9rem;">Sin datos</p>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        with col_conc3:
+                st.metric("🥈 Top 11-50", "0%", "Sin datos")
+            
             if resto_contratos > 0:
-                st.markdown(f"""
-                <div style="background: linear-gradient(135deg, #621B00, #2F1000); padding: 1.5rem; border-radius: 15px; text-align: center; box-shadow: 0 4px 8px rgba(47, 16, 0, 0.3);">
-                    <h3 style="color: white; margin: 0; font-size: 1.1rem;">Resto (51+)</h3>
-                    <h2 style="color: white; margin: 0.5rem 0 0 0; font-size: 1.8rem;">{(resto_contratos/total_contratos)*100:.1f}%</h2>
-                    <p style="color: white; margin: 0; font-size: 0.9rem;">{resto_contratos:,} contratos</p>
-                </div>
-                """, unsafe_allow_html=True)
+                st.metric("🥉 Resto (51+)", f"{(resto_contratos/total_contratos)*100:.1f}%", 
+                         f"{resto_contratos:,} contratos")
             else:
-                st.markdown("""
-                <div style="background: linear-gradient(135deg, #621B00, #2F1000); padding: 1.5rem; border-radius: 15px; text-align: center; box-shadow: 0 4px 8px rgba(47, 16, 0, 0.3);">
-                    <h3 style="color: white; margin: 0; font-size: 1.1rem;">Resto (51+)</h3>
-                    <h2 style="color: white; margin: 0.5rem 0 0 0; font-size: 1.8rem;">0%</h2>
-                    <p style="color: white; margin: 0; font-size: 0.9rem;">Sin datos</p>
-                </div>
-                """, unsafe_allow_html=True)
+                st.metric("🥉 Resto (51+)", "0%", "Sin datos")
         
-        
-        # Top 5 en detalle
-        st.markdown("#### Top 5 Proveedores - Análisis de Duplicación")
+        # Top 5 en detalle (fuera de las columnas, ocupando todo el ancho)
+        st.markdown("### Top 5 Proveedores - Análisis Detallado")
         
         for i, row in proveedor_stats.head(5).iterrows():
             with st.expander(f"#{i+1} - {row['Proveedor']} ({int(row['Contratos_Unicos']):,} únicos, {row['Pct_Duplicados']:.1f}% duplicados)"):

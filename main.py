@@ -209,10 +209,6 @@ def main():
     with st.sidebar:
         # Sección de aportaciones
         st.markdown("### 📊 Aportaciones")
-        
-        # Mostrar estado del archivo local
-        if os.path.exists('./acumulado.xlsx'):
-            st.info("📄 ./acumulado.xlsx")
 
         file_path = st.file_uploader("Subir archivo personalizado (Excel)", type=['xlsx'], key="aportaciones_upload")
 
@@ -276,7 +272,7 @@ def main():
         aportaciones['FECHA'] = pd.to_datetime(aportaciones['FECHA'], errors='coerce')
         aportaciones['PERIODO'] = aportaciones['FECHA'].apply(get_period)
 
-        tab1, tab3, tab4 = st.tabs(["Partidos", "Datos", "Análisis de Contratos"])
+        tab1, tab4, tab3 = st.tabs(["Partidos", "Análisis de Contratos", "Datos"])
 
         with tab1:
             mostrar_tab_partidos(aportaciones, party_colors)
