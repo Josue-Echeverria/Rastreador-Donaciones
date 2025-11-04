@@ -71,19 +71,6 @@ def _detectar_alertas_temporales(df_contratos, df_donaciones, ventana_meses=12):
     return alertas_agrupadas
 
 def mostrar_tab_contratos(aportaciones, preparar_donaciones):
-    """Muestra la pestaña de análisis de contratos"""
-    st.markdown("""
-    <div style="background: linear-gradient(135deg, rgba(47, 16, 0, 0.1), rgba(199, 80, 0, 0.1)); 
-                padding: 1.5rem; border-radius: 15px; margin-bottom: 2rem; border-left: 5px solid #C75000;">
-        <h2 style="color: #2F1000; margin: 0; font-size: 1.8rem;">
-            Análisis de Contratos Post-Electorales
-        </h2>
-        <p style="color: #621B00; margin: 0.5rem 0 0 0;">
-            Análisis de la relación temporal entre donaciones políticas y contratos gubernamentales
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-    
     # Usar contratos ya cargados o cargar desde la carpeta por defecto (caché siempre activo)
     contratos_raw = None
     if 'contratos' in st.session_state:

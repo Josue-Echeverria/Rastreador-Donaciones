@@ -55,7 +55,7 @@ def load_aportaciones_local():
         return None
 
 @st.cache_data
-def load_contratos_local():
+def loading_contratos():
     """Carga contratos desde archivo local"""
     try:
         return pd.read_excel('./contratos_completo_todas_columnas.xlsx')
@@ -202,7 +202,7 @@ def main():
             st.session_state['aportaciones_local'] = aportaciones_local
     
     if 'contratos' not in st.session_state:
-        contratos_local = load_contratos_local()
+        contratos_local = loading_contratos()
         if contratos_local is not None:
             st.session_state['contratos'] = contratos_local
 
@@ -211,8 +211,8 @@ def main():
         st.markdown("### 📊 Aportaciones")
         
         # Mostrar estado del archivo local
-        if os.path.exists('./aportaciones.xlsx'):
-            st.info("📄 ./aportaciones.xlsx")
+        if os.path.exists('./acumulado.xlsx'):
+            st.info("📄 ./acumulado.xlsx")
 
         file_path = st.file_uploader("Subir archivo personalizado (Excel)", type=['xlsx'], key="aportaciones_upload")
 
@@ -241,7 +241,6 @@ def main():
     elif 'aportaciones_local' in st.session_state:
         # Usar archivo local
         aportaciones = st.session_state['aportaciones_local']
-        st.info("📂 Usando aportaciones del archivo local")
     
     if aportaciones is not None:
         # Validación de cédulas: solo mantener registros con cédulas de 7, 8 o 9 dígitos
