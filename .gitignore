@@ -1,0 +1,17 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Project-specific folders
+contratos/
+tabs/__pycache__/
+
+# Excel temporary files (e.g. ~$Workbook.xlsx)
+~$*
+
+# General temp files
+*.tmp
+
+# LibreOffice locks (optional)
+.~lock.*#

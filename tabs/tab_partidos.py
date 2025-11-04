@@ -76,7 +76,7 @@ def mostrar_tab_partidos(aportaciones, party_colors):
         )
         fig_pie_amount.update_layout(showlegend=False)
         st.plotly_chart(fig_pie_amount, use_container_width=True)
-
+    
     with col2:
         st.subheader("Resumen")
         st.metric("Total Partidos Activos", len(active_aportaciones['PARTIDO POLÍTICO'].unique()))
@@ -98,3 +98,132 @@ def mostrar_tab_partidos(aportaciones, party_colors):
         top_3_amounts = party_total_amounts.nlargest(3)
         for i, (partido, monto) in enumerate(top_3_amounts.items(), 1):
             st.metric(f"{i}. {partido[:20]}...", f"₡{monto:,.0f}")
+
+
+    
+    # Crear dos columnas para los gráficos temporales
+    col1_don, col2_don = st.columns([2, 1])
+
+    with col1_don:
+        cedula_counts = aportaciones['CÉDULA'].value_counts()
+        cedula_amounts = aportaciones.groupby('CÉDULA')['MONTO'].sum()
+        st.subheader("Top 20 Donantes por Monto Total")
+        top_amounts = cedula_amounts.nlargest(20)
+        amount_data = pd.DataFrame({
+            'Cédula': top_amounts.index,
+            'Monto Total': top_amounts.values,
+            'Cantidad de Donaciones': cedula_counts.loc[top_amounts.index]
+        }).reset_index(drop=True)
+        amount_data.index = amount_data.index + 1
+        
+        st.dataframe(
+            amount_data,
+            column_config={
+                "Monto Total": st.column_config.ProgressColumn(
+                    "Monto Total (₡)",
+                    help="Monto total donado por cada cédula",
+                    min_value=0,
+                    max_value=int(amount_data['Monto Total'].max()),
+                    format="₡%.0f"
+                )
+            },
+            use_container_width=True
+        )
+    with col2_don:
+        st.subheader("Estadísticas de Donantes")
+        
+        total_donors = len(aportaciones['CÉDULA'].unique())
+        repeat_donors = len(cedula_counts[cedula_counts > 1])
+        top_donor_amount = cedula_amounts.max()
+        top_donor_count = cedula_counts.max()
+        
+        st.metric("Total Donantes", total_donors)
+        st.metric("Donantes Recurrentes", repeat_donors)
+        st.metric("Mayor Donación", f"₡{top_donor_amount:,.0f}")
+        st.metric("Más Donaciones", f"{top_donor_count} veces")
+    # Separador visual
+    st.divider()
+    
+    # Análisis por Tipo de Contribución
+    st.header("Análisis por Tipo de Contribución")
+    
+    # Filtrar datos válidos para análisis temporal por tipo
+    aportaciones_tipo_valid = aportaciones.dropna(subset=['FECHA', 'TIPO CONTRIBUCIÓN'])
+    aportaciones_tipo_valid['MONTH_YEAR'] = aportaciones_tipo_valid['FECHA'].dt.to_period('M')
+    
+    # Agrupar por tipo de contribución y mes
+    monthly_by_type = aportaciones_tipo_valid.groupby(['TIPO CONTRIBUCIÓN', 'MONTH_YEAR'])['MONTO'].sum().reset_index()
+    monthly_by_type['MONTH_YEAR'] = monthly_by_type['MONTH_YEAR'].dt.to_timestamp()
+    monthly_by_type['MONTO_MILLONES'] = monthly_by_type['MONTO'] / 1_000_000
+    
+    # Crear dos columnas para los gráficos temporales
+    col1_tipo, col2_tipo = st.columns(2)
+    
+    with col1_tipo:
+        st.subheader("Donaciones en EFECTIVO")
+        efectivo_data = monthly_by_type[monthly_by_type['TIPO CONTRIBUCIÓN'] == 'EFECTIVO']
+        
+        if not efectivo_data.empty:
+            fig_efectivo = px.bar(
+                efectivo_data,
+                x='MONTH_YEAR',
+                y='MONTO_MILLONES',
+                labels={'MONTO_MILLONES': 'Monto (Millones ₡)', 'MONTH_YEAR': 'Fecha'},
+                color_discrete_sequence=['#2E8B57']
+            )
+            fig_efectivo.update_layout(height=400)
+            st.plotly_chart(fig_efectivo, use_container_width=True)
+        else:
+            st.info("No hay datos de donaciones en efectivo disponibles")
+    
+    with col2_tipo:
+        st.subheader("Donaciones EN ESPECIE")
+        especie_data = monthly_by_type[monthly_by_type['TIPO CONTRIBUCIÓN'] == 'EN ESPECIE']
+        
+        if not especie_data.empty:
+            fig_especie = px.bar(
+                especie_data,
+                x='MONTH_YEAR',
+                y='MONTO_MILLONES',
+                labels={'MONTO_MILLONES': 'Monto (Millones ₡)', 'MONTH_YEAR': 'Fecha'},
+                color_discrete_sequence=['#8B4513']
+            )
+            fig_especie.update_layout(height=400)
+            st.plotly_chart(fig_especie, use_container_width=True)
+        else:
+            st.info("No hay datos de donaciones en especie disponibles")
+    
+    # Gráfico circular con distribución por tipo de contribución
+    st.subheader("Distribución por Tipo de Contribución")
+    
+    # Calcular totales por tipo de contribución
+    tipo_totals = aportaciones.groupby('TIPO CONTRIBUCIÓN')['MONTO'].sum()
+    col3_tipo, col4_tipo = st.columns(2)
+    if not tipo_totals.empty:
+        with col3_tipo:
+            fig_pie_tipo = px.pie(
+                values=tipo_totals.values,
+                names=tipo_totals.index,
+                height=500,
+                color_discrete_sequence=['#2E8B57', '#8B4513', '#4682B4', '#CD853F']
+            )
+            fig_pie_tipo.update_traces(
+                textposition='inside', 
+                textinfo='percent+label',
+                hovertemplate='<b>%{label}</b><br>Monto: ₡%{value:,.0f}<br>Porcentaje: %{percent}<extra></extra>'
+            )
+            fig_pie_tipo.update_layout(showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2))
+            st.plotly_chart(fig_pie_tipo, use_container_width=True)
+            
+            # Mostrar estadísticas detalladas
+        
+        with col4_tipo:
+            st.subheader("Estadísticas por Tipo")
+            for tipo, monto in tipo_totals.items():
+                porcentaje = (monto / tipo_totals.sum()) * 100
+                st.metric(f"{tipo}", f"₡{monto:,.0f}", f"{porcentaje:.1f}%")
+        
+    else:
+        st.warning("No hay datos de tipo de contribución disponibles")
+
+

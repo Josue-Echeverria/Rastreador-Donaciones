@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import os
 
 # Importar las tabs modularizadas
-from tabs import mostrar_tab_partidos, mostrar_tab_cedulas, mostrar_tab_datos, mostrar_tab_contratos
+from tabs import mostrar_tab_partidos, mostrar_tab_datos, mostrar_tab_contratos
 
 # Configure page to use wide layout
 st.set_page_config(
@@ -47,34 +47,20 @@ def load_aportaciones_from_file(file_path):
     return None
 
 @st.cache_data
-def load_contratos_from_folder(folder_path):
-    if folder_path and os.path.exists(folder_path):
-        try:
-            all_files = [
-                os.path.join(folder_path, f)
-                for f in os.listdir(folder_path)
-                if f.lower().endswith('.xlsx')
-            ]
+def load_aportaciones_local():
+    """Carga aportaciones desde archivo local"""
+    try:
+        return pd.read_excel('./acumulado.xlsx', sheet_name='BBDD')
+    except:
+        return None
 
-            dataframes = []
-            for file in all_files:
-                try:
-                    df = pd.read_excel(file, sheet_name='Informacion de contratos')
-                    dataframes.append(df)
-                except Exception as e:
-                    st.warning(f"Skipping file {file} due to error: {e}")
-
-            if dataframes:
-                contratos_raw = pd.concat(dataframes, ignore_index=True)
-                print("aopfingaoív: ",len(contratos_raw))
-                return contratos_raw
-            else:
-                st.error("No valid files could be loaded.")
-                return None
-        except Exception as e:
-            st.error(f"Error: {e}")
-            return None
-    return None
+@st.cache_data
+def load_contratos_local():
+    """Carga contratos desde archivo local"""
+    try:
+        return pd.read_excel('./contratos_completo_todas_columnas.xlsx')
+    except:
+        return None
 
 def get_period(year):
     if pd.isna(year):
@@ -103,67 +89,6 @@ def create_party_color_map(parties):
     for i, party in enumerate(parties):
         color_map[party] = colors[i % len(colors)]
     return color_map
-
-def preparar_contratos(df_contratos):
-    """Prepara y normaliza datos de contratos"""
-    if df_contratos is None or len(df_contratos) == 0:
-        return None
-    
-    df = df_contratos.copy()
-    
-    # Buscar columnas de fecha
-    fecha_col = None
-    for col in df.columns:
-        if any(word in col.lower() for word in ['fecha', 'notif']):
-            fecha_col = col
-            break
-    
-    if not fecha_col:
-        st.error("No se encontró columna de fecha en contratos")
-        return None
-    
-    # Buscar columna de cédula del proveedor
-    cedula_col = None
-    for col in df.columns:
-        if any(word in col.lower() for word in ['cédula', 'cedula', 'proveedor']):
-            cedula_col = col
-            break
-    
-    if not cedula_col:
-        st.error("No se encontró columna de cédula del proveedor")
-        return None
-    
-    # Buscar columna de número de contrato
-    contrato_col = None
-    for col in df.columns:
-        if any(word in col.lower() for word in ['nro', 'numero', 'contrato', 'número']):
-            contrato_col = col
-            break
-    
-    if not contrato_col:
-        st.warning("No se encontró columna de número de contrato")
-    
-    # Renombrar columnas
-    rename_dict = {
-        fecha_col: 'fecha_notificacion',
-        cedula_col: 'cedula_proveedor'
-    }
-    if contrato_col:
-        rename_dict[contrato_col] = 'nro_contrato'
-    
-    df = df.rename(columns=rename_dict)
-    
-    # Convertir fecha con formato más robusto
-    df['fecha_notificacion'] = pd.to_datetime(df['fecha_notificacion'], errors='coerce', dayfirst=True)
-    
-    # Normalizar cédula
-    df['cedula_proveedor'] = df['cedula_proveedor'].astype(str).str.replace(r'[^0-9]', '', regex=True)
-    
-    # Eliminar filas con fecha inválida o cédulas vacías
-    df = df.dropna(subset=['fecha_notificacion'])
-    df = df[df['cedula_proveedor'].str.len() > 0]
-    
-    return df
 
 def preparar_donaciones(df_donaciones):
     """Prepara y normaliza datos de donaciones"""
@@ -270,39 +195,53 @@ def analizar_contratos_por_partido(df_contratos, df_donaciones, partido_seleccio
     return contratos_donantes, contratos_mensuales
 
 def main():
+    # Cargar datos locales automáticamente al inicio
+    if 'aportaciones_local' not in st.session_state:
+        aportaciones_local = load_aportaciones_local()
+        if aportaciones_local is not None:
+            st.session_state['aportaciones_local'] = aportaciones_local
+    
+    if 'contratos' not in st.session_state:
+        contratos_local = load_contratos_local()
+        if contratos_local is not None:
+            st.session_state['contratos'] = contratos_local
+
     with st.sidebar:
-
-        file_path = st.file_uploader("Archivo de aportaciones (Excel)", type=['xlsx'])
-
+        # Sección de aportaciones
+        st.markdown("### 📊 Aportaciones")
         
-        # Verificar si la carpeta de contratos existe
-        contratos_folder = "c:\\Users\\Asus\\Desktop\\Rastreador-Donaciones\\Contratos"
-        if os.path.exists(contratos_folder):
-            archivos_contratos = [f for f in os.listdir(contratos_folder) if f.lower().endswith('.xlsx')]
-            if archivos_contratos:
-                with st.expander("Ver archivos detectados"):
-                    for archivo in archivos_contratos:
-                        st.write(f"• {archivo}")
-            else:
-                st.warning("! Carpeta 'Contratos' está vacía")
-        else:
-            st.error("X Carpeta 'Contratos' no encontrada")
-        
-        # Manual path input (optional)
-        folder_path = st.text_input("Ruta alternativa de contratos:")
-        
-        if st.button("Cargar Contratos Manualmente", type="secondary"):
-            if folder_path:
-                contratos = load_contratos_from_folder(folder_path)
-                if contratos is not None:
-                    st.session_state['contratos'] = contratos
-                    st.success("Contratos cargados exitosamente")
-            else:
-                st.warning("Por favor ingrese una ruta")
-        
+        # Mostrar estado del archivo local
+        if os.path.exists('./aportaciones.xlsx'):
+            st.info("📄 ./aportaciones.xlsx")
 
+        file_path = st.file_uploader("Subir archivo personalizado (Excel)", type=['xlsx'], key="aportaciones_upload")
 
-    aportaciones = load_aportaciones_from_file(file_path)
+        st.markdown("---")
+        
+        # Sección de contratos
+        st.markdown("### 📋 Contratos")
+        
+        # Opción para subir archivo personalizado de contratos
+        contratos_file = st.file_uploader("Subir archivo personalizado (Excel)", type=['xlsx'], key="contratos_upload")
+        
+        if contratos_file is not None:
+            try:
+                contratos = pd.read_excel(contratos_file)
+                st.session_state['contratos'] = contratos
+                st.info(f"📄 {contratos_file.name}")
+            except Exception as e:
+                st.error(f"Error al cargar contratos: {e}")
+
+    # Determinar qué archivo de aportaciones usar
+    aportaciones = None
+    if file_path is not None:
+        # Usar archivo subido por el usuario
+        aportaciones = load_aportaciones_from_file(file_path)
+        st.success("📤 Usando aportaciones subidas por el usuario")
+    elif 'aportaciones_local' in st.session_state:
+        # Usar archivo local
+        aportaciones = st.session_state['aportaciones_local']
+        st.info("📂 Usando aportaciones del archivo local")
     
     if aportaciones is not None:
         # Validación de cédulas: solo mantener registros con cédulas de 7, 8 o 9 dígitos
@@ -338,13 +277,10 @@ def main():
         aportaciones['FECHA'] = pd.to_datetime(aportaciones['FECHA'], errors='coerce')
         aportaciones['PERIODO'] = aportaciones['FECHA'].apply(get_period)
 
-        tab1, tab2, tab3, tab4 = st.tabs(["Partidos", "Cédulas", "Datos", "Análisis de Contratos"])
+        tab1, tab3, tab4 = st.tabs(["Partidos", "Datos", "Análisis de Contratos"])
 
         with tab1:
             mostrar_tab_partidos(aportaciones, party_colors)
-        
-        with tab2:
-            mostrar_tab_cedulas(aportaciones)
         
         with tab3:
             mostrar_tab_datos(aportaciones)
@@ -352,34 +288,40 @@ def main():
         with tab4:
             mostrar_tab_contratos(
                 aportaciones, 
-                contratos_folder, 
-                preparar_contratos, 
-                preparar_donaciones, 
-                detectar_alertas_temporales, 
-                load_contratos_from_folder
+                preparar_donaciones
             )
     
     else:
         st.markdown("""
         ## Bienvenido al Rastreador de Donaciones
         
-        ### Instrucciones de Uso:
+        ### Sistema de Carga Automática:
         
-        1. **Cargar Datos**: Use la barra lateral para subir el archivo Excel de aportaciones
-        2. **Contratos**: Opcionalmente, ingrese la ruta de la carpeta de contratos
-        3. **Análisis**: Use las pestañas para navegar entre diferentes análisis
-        4. **Exportar**: Descargue los resultados en formato CSV
+        El sistema intenta cargar automáticamente:
+        - **Aportaciones**: `./aportaciones.xlsx` (hoja 'BBDD')
+        - **Contratos**: `./contratos_completo_todas_columnas.xlsx`
+        
+        ### Personalización:
+        
+        Puede subir sus propios archivos usando la barra lateral para:
+        - Reemplazar los datos de aportaciones
+        - Reemplazar los datos de contratos
+        
+        ### Análisis Disponibles:
+        
+        1. **Partidos**: Análisis interactivo de partidos políticos
+        2. **Datos**: Visualización completa de datos y métricas
+        3. **Contratos**: Análisis de contratos post-electorales con alertas temporales
         
         ### Características:
         
-        - Análisis interactivo de partidos políticos
-        - Visualización de ingresos anuales
-        - Análisis detallado de donantes
-        - Vista completa de datos
-        - Métricas en tiempo real
-        - Rankings y estadísticas
+        - Carga automática de archivos locales
+        - Análisis en tiempo real
+        - Visualizaciones interactivas
+        - Detección de alertas temporales
+        - Exportación de resultados
         
-        **Comience cargando sus datos usando la barra lateral**
+        **Los datos se cargan automáticamente si están disponibles**
         """)
     
     st.markdown("---")
