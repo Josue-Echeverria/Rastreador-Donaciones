@@ -70,70 +70,26 @@ def _detectar_alertas_temporales(df_contratos, df_donaciones, ventana_meses=12):
     
     return alertas_agrupadas
 
-def mostrar_tab_contratos(aportaciones, preparar_donaciones):
-    # Usar contratos ya cargados o cargar desde la carpeta por defecto (caché siempre activo)
-    contratos_raw = None
-    if 'contratos' in st.session_state:
-        contratos_raw = st.session_state['contratos']
-    else:
-        try:
-            with st.spinner('Cargando archivo de contratos...'):
-                contratos_raw = pd.read_excel('./contratos_completo_todas_columnas.xlsx')
-                st.session_state['contratos'] = contratos_raw
-        except:
-            st.warning("No se pudo cargar el archivo de contratos desde './contratos_completo_todas_columnas.xlsx'")
+def preparar_donaciones(df_donaciones):
+    """Prepara y normaliza datos de donaciones"""
+    if df_donaciones is None or len(df_donaciones) == 0:
+        return None
+    
+    df = df_donaciones.copy()
+    
+    # Normalizar cédula
+    df['CÉDULA'] = df['CÉDULA'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+    
+    # Convertir fechas si existe la columna FECHA
+    if 'FECHA' in df.columns:
+        df['FECHA'] = pd.to_datetime(df['FECHA'], errors='coerce', dayfirst=True)
+    
+    # Eliminar filas con cédulas vacías
+    df = df[df['CÉDULA'].str.len() > 0]
+    
+    return df
 
-    if contratos_raw is not None:
-        contratos_prep = contratos_raw.copy()
-            
-        donaciones_prep = preparar_donaciones(aportaciones)
-        
-        if contratos_prep is not None and donaciones_prep is not None:
-            
-            # Encontrar coincidencias usando nombres directos de columnas
-            cedulas_contratos = set(contratos_prep['Cédula Proveedor'].astype(str).unique())
-            cedulas_donaciones = set(donaciones_prep['CÉDULA'].unique())
-            coincidencias = cedulas_contratos & cedulas_donaciones
-        
-            
-            # Detectar alertas usando función local con ventana fija de 12 meses
-            alertas = _detectar_alertas_temporales(contratos_prep, donaciones_prep, 12)
-            
-            if len(alertas) > 0:
-                # Análisis temporal de contratos
-                st.subheader("Acumulación de Contratos en el Tiempo")
-                
-                # Preparar datos para visualización temporal usando nombres directos
-                contratos_temp = contratos_prep.copy()
-                contratos_temp['fecha_parsed'] = pd.to_datetime(contratos_temp['Fecha Notificación'], errors='coerce', dayfirst=True)
-                contratos_temp['year'] = contratos_temp['fecha_parsed'].dt.year
-                contratos_temp['month_year'] = contratos_temp['fecha_parsed'].dt.to_period('M')
-                
-                # Filtrar años válidos (remover valores nulos y años extremos)
-                contratos_temp = contratos_temp.dropna(subset=['year'])
-                contratos_temp = contratos_temp[
-                    (contratos_temp['year'] >= 2000) & 
-                    (contratos_temp['year'] <= datetime.now().year)
-                ]
-
-                crear_grafico_acumulacion_anual(contratos_temp)
-                
-                # Análisis de top proveedores
-                _mostrar_top_proveedores(contratos_prep)
-                
-                # Mostrar estadísticas y visualizaciones
-                _mostrar_graficos_alertas(alertas)
-                _mostrar_tabla_alertas(alertas)
-
-                
-            else:
-                st.info("No se detectaron alertas temporales en una ventana de 12 meses")
-        else:
-            st.error("No se pudieron preparar los datos de contratos o donaciones")
-    else:
-        st.warning("No se pudieron cargar los contratos. Verifique que la carpeta 'Contratos' esté disponible.")
-
-def _mostrar_graficos_alertas(alertas):
+def _graficos_alertas(alertas):
     """Muestra los gráficos de análisis de alertas"""
     # Distribución por partido
     st.markdown("### Alertas por Partido")
@@ -157,7 +113,7 @@ def _mostrar_graficos_alertas(alertas):
     fig_alertas.update_layout(showlegend=False)
     st.plotly_chart(fig_alertas, use_container_width=True)
 
-def _mostrar_tabla_alertas(alertas):
+def _tabla_alertas(alertas):
     """Muestra la tabla detallada de alertas"""
     st.markdown("### Tabla Detallada de Alertas")
     
@@ -173,7 +129,7 @@ def _mostrar_tabla_alertas(alertas):
     tabla_alertas['monto_formateado'] = tabla_alertas['monto_total_donaciones'].apply(lambda x: f"₡{x:,.0f}")
     
     # Seleccionar y renombrar columnas para mostrar
-    columnas_mostrar = {
+    columnas = {
         'cedula_anonima': 'ID Persona',
         'nro_contrato': 'Número Contrato',
         'fecha_contrato_str': 'Fecha Contrato',
@@ -182,7 +138,7 @@ def _mostrar_tabla_alertas(alertas):
         'monto_formateado': 'Monto Total'
     }
     
-    tabla_display = tabla_alertas[list(columnas_mostrar.keys())].rename(columns=columnas_mostrar)
+    tabla_display = tabla_alertas[list(columnas.keys())].rename(columns=columnas)
     
     # Configurar la tabla con colores
     st.dataframe(
@@ -221,7 +177,7 @@ def _mostrar_tabla_alertas(alertas):
         monto_total = tabla_alertas['monto_total_donaciones'].sum()
         st.metric("Monto Total Donaciones", f"₡{monto_total:,.0f}")
 
-def _mostrar_top_proveedores(contratos_prep):
+def _top_proveedores(contratos_prep):
     """Muestra análisis de top proveedores con contratos únicos vs duplicados"""
     st.markdown("### Top Proveedores")
     
@@ -482,13 +438,13 @@ def _mostrar_top_proveedores(contratos_prep):
                 else:
                     st.success(f"✅ Bajo nivel de duplicación: {row['Pct_Duplicados']:.1f}%")
 
-def crear_grafico_acumulacion_anual(contratos_temp):
+def _acumulacion_anual(contratos_temp):
     """Crea el gráfico principal de acumulación de contratos por año"""
     # Contar contratos por año
     contratos_por_año = contratos_temp.groupby('year').size().reset_index(name='cantidad_contratos')
     
     # Calcular acumulación
-    contratos_por_año['acumulado'] = contratos_por_año['cantidad_contratos'].cumsum()
+    contratos_por_año['donaciones'] = contratos_por_año['cantidad_contratos'].cumsum()
     
     # Crear gráfico de línea con acumulación
     fig = go.Figure()
@@ -496,7 +452,7 @@ def crear_grafico_acumulacion_anual(contratos_temp):
     # Línea de acumulación
     fig.add_trace(go.Scatter(
         x=contratos_por_año['year'],
-        y=contratos_por_año['acumulado'],
+        y=contratos_por_año['donaciones'],
         mode='lines+markers',
         name='Contratos Acumulados',
         line=dict(color='#1f77b4', width=3),
@@ -544,3 +500,65 @@ def crear_grafico_acumulacion_anual(contratos_temp):
     
     return contratos_por_año
 
+def mostrar_tab_contratos(aportaciones):
+    # Usar contratos ya cargados o cargar desde la carpeta por defecto (caché siempre activo)
+    contratos_raw = None
+    if 'contratos' in st.session_state:
+        contratos_raw = st.session_state['contratos']
+    else:
+        try:
+            with st.spinner('Cargando archivo de contratos...'):
+                contratos_raw = pd.read_excel('./contratos.xlsx')
+                st.session_state['contratos'] = contratos_raw
+        except:
+            st.warning("No se pudo cargar el archivo de contratos desde './contratos.xlsx'")
+
+    if contratos_raw is not None:
+        contratos_prep = contratos_raw.copy()
+            
+        donaciones_prep = preparar_donaciones(aportaciones)
+        
+        if contratos_prep is not None and donaciones_prep is not None:
+            
+            # Encontrar coincidencias usando nombres directos de columnas
+            cedulas_contratos = set(contratos_prep['Cédula Proveedor'].astype(str).unique())
+            cedulas_donaciones = set(donaciones_prep['CÉDULA'].unique())
+            coincidencias = cedulas_contratos & cedulas_donaciones
+        
+            
+            # Detectar alertas usando función local con ventana fija de 12 meses
+            alertas = _detectar_alertas_temporales(contratos_prep, donaciones_prep, 12)
+            
+            if len(alertas) > 0:
+                # Análisis temporal de contratos
+                st.subheader("Acumulación de Contratos en el Tiempo")
+                
+                # Preparar datos para visualización temporal usando nombres directos
+                contratos_temp = contratos_prep.copy()
+                contratos_temp['fecha_parsed'] = pd.to_datetime(contratos_temp['Fecha Notificación'], errors='coerce', dayfirst=True)
+                contratos_temp['year'] = contratos_temp['fecha_parsed'].dt.year
+                contratos_temp['month_year'] = contratos_temp['fecha_parsed'].dt.to_period('M')
+                
+                # Filtrar años válidos (remover valores nulos y años extremos)
+                contratos_temp = contratos_temp.dropna(subset=['year'])
+                contratos_temp = contratos_temp[
+                    (contratos_temp['year'] >= 2000) & 
+                    (contratos_temp['year'] <= datetime.now().year)
+                ]
+
+                _acumulacion_anual(contratos_temp)
+                
+                # Análisis de top proveedores
+                _top_proveedores(contratos_prep)
+                
+                # Mostrar estadísticas y visualizaciones
+                _graficos_alertas(alertas)
+                _tabla_alertas(alertas)
+
+                
+            else:
+                st.info("No se detectaron alertas temporales en una ventana de 12 meses")
+        else:
+            st.error("No se pudieron preparar los datos de contratos o donaciones")
+    else:
+        st.warning("No se pudieron cargar los contratos. Verifique que la carpeta 'Contratos' esté disponible.")

@@ -47,10 +47,10 @@ def load_aportaciones_from_file(file_path):
     return None
 
 @st.cache_data
-def load_aportaciones_local():
+def load_donaciones():
     """Carga aportaciones desde archivo local"""
     try:
-        return pd.read_excel('./acumulado.xlsx', sheet_name='BBDD')
+        return pd.read_excel('./donaciones.xlsx', sheet_name='BBDD')
     except:
         return None
 
@@ -58,7 +58,7 @@ def load_aportaciones_local():
 def loading_contratos():
     """Carga contratos desde archivo local"""
     try:
-        return pd.read_excel('./contratos_completo_todas_columnas.xlsx')
+        return pd.read_excel('./contratos.xlsx')
     except:
         return None
 
@@ -76,38 +76,6 @@ def get_period(year):
         if periodo[0] <= year <= periodo[1]:
             return f'{periodo[0]}-{periodo[1]} ({partido})'
     return None
-
-def create_party_color_map(parties):
-    """Crea un mapeo consistente de colores para partidos políticos"""
-    colors = [
-        '#00a74e', '#ff7f0e', '#d62728', '#9edae5', '#9467bd',
-        '#ffffff', '#e377c2', '#7f7f7f', '#bcbd22', '#f9ec00',
-        '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
-        '#c49c94', '#f7b6d3', '#c7c7c7', '#215b9e', '#9edae5'
-    ]
-    color_map = {}
-    for i, party in enumerate(parties):
-        color_map[party] = colors[i % len(colors)]
-    return color_map
-
-def preparar_donaciones(df_donaciones):
-    """Prepara y normaliza datos de donaciones"""
-    if df_donaciones is None or len(df_donaciones) == 0:
-        return None
-    
-    df = df_donaciones.copy()
-    
-    # Normalizar cédula
-    df['CÉDULA'] = df['CÉDULA'].astype(str).str.replace(r'[^0-9]', '', regex=True)
-    
-    # Convertir fechas si existe la columna FECHA
-    if 'FECHA' in df.columns:
-        df['FECHA'] = pd.to_datetime(df['FECHA'], errors='coerce', dayfirst=True)
-    
-    # Eliminar filas con cédulas vacías
-    df = df[df['CÉDULA'].str.len() > 0]
-    
-    return df
 
 def detectar_alertas_temporales(df_contratos, df_donaciones, ventana_meses=6):
     """Detecta casos donde una donación y un contrato ocurren en menos de X meses"""
@@ -196,10 +164,10 @@ def analizar_contratos_por_partido(df_contratos, df_donaciones, partido_seleccio
 
 def main():
     # Cargar datos locales automáticamente al inicio
-    if 'aportaciones_local' not in st.session_state:
-        aportaciones_local = load_aportaciones_local()
-        if aportaciones_local is not None:
-            st.session_state['aportaciones_local'] = aportaciones_local
+    if 'donaciones' not in st.session_state:
+        donaciones = load_donaciones()
+        if donaciones is not None:
+            st.session_state['donaciones'] = donaciones
     
     if 'contratos' not in st.session_state:
         contratos_local = loading_contratos()
@@ -234,9 +202,9 @@ def main():
         # Usar archivo subido por el usuario
         aportaciones = load_aportaciones_from_file(file_path)
         st.success("📤 Usando aportaciones subidas por el usuario")
-    elif 'aportaciones_local' in st.session_state:
+    elif 'donaciones' in st.session_state:
         # Usar archivo local
-        aportaciones = st.session_state['aportaciones_local']
+        aportaciones = st.session_state['donaciones']
     
     if aportaciones is not None:
         # Validación de cédulas: solo mantener registros con cédulas de 7, 8 o 9 dígitos
@@ -265,26 +233,19 @@ def main():
         party_contributions_count = active_aportaciones['PARTIDO POLÍTICO'].value_counts()
         top_20 = party_contributions_count.head(20)
         
-        # Crear mapeo de colores consistente para los partidos
-        all_parties = active_aportaciones['PARTIDO POLÍTICO'].unique()
-        party_colors = create_party_color_map(all_parties)
-        
         aportaciones['FECHA'] = pd.to_datetime(aportaciones['FECHA'], errors='coerce')
         aportaciones['PERIODO'] = aportaciones['FECHA'].apply(get_period)
 
         tab1, tab4, tab3 = st.tabs(["Partidos", "Análisis de Contratos", "Datos"])
 
         with tab1:
-            mostrar_tab_partidos(aportaciones, party_colors)
+            mostrar_tab_partidos(aportaciones)
         
         with tab3:
             mostrar_tab_datos(aportaciones)
         
         with tab4:
-            mostrar_tab_contratos(
-                aportaciones, 
-                preparar_donaciones
-            )
+            mostrar_tab_contratos(aportaciones)
     
     else:
         st.markdown("""
