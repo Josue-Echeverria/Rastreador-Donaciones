@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import os
 
 # Importar las tabs modularizadas
-from tabs import mostrar_tab_partidos, mostrar_tab_datos, mostrar_tab_contratos
+from tabs import mostrar_tab_partidos, mostrar_tab_datos, mostrar_tab_contratos, mostrar_tab_empresas
 
 # Configure page to use wide layout
 st.set_page_config(
@@ -181,13 +181,13 @@ def main():
         file_path = st.file_uploader("Subir archivo personalizado (Excel)", type=['xlsx'], key="aportaciones_upload")
 
         st.markdown("---")
-        
+
         # Sección de contratos
         st.markdown("### 📋 Contratos")
-        
+
         # Opción para subir archivo personalizado de contratos
         contratos_file = st.file_uploader("Subir archivo personalizado (Excel)", type=['xlsx'], key="contratos_upload")
-        
+
         if contratos_file is not None:
             try:
                 contratos = pd.read_excel(contratos_file)
@@ -196,12 +196,34 @@ def main():
             except Exception as e:
                 st.error(f"Error al cargar contratos: {e}")
 
+        st.markdown("---")
+
+        # Sección de representantes legales
+        st.markdown("### 🏢 Representantes Legales")
+
+        # Opción para subir archivo de representantes
+        representantes_file = st.file_uploader(
+            "Subir archivo personalizado (Excel)",
+            type=['xlsx'],
+            key="representantes_upload",
+            help="Archivo con cédulas jurídicas y sus representantes"
+        )
+
+        if representantes_file is not None:
+            try:
+                representantes = pd.read_excel(representantes_file)
+                st.session_state['representantes'] = representantes
+                st.info(f"📄 {representantes_file.name}")
+                st.caption(f"{len(representantes):,} registros")
+            except Exception as e:
+                st.error(f"Error al cargar representantes: {e}")
+
     # Determinar qué archivo de aportaciones usar
     aportaciones = None
     if file_path is not None:
         # Usar archivo subido por el usuario
         aportaciones = load_aportaciones_from_file(file_path)
-        st.success("📤 Usando aportaciones subidas por el usuario")
+        st.success("Usando aportaciones subidas por el usuario")
     elif 'donaciones' in st.session_state:
         # Usar archivo local
         aportaciones = st.session_state['donaciones']
@@ -236,48 +258,57 @@ def main():
         aportaciones['FECHA'] = pd.to_datetime(aportaciones['FECHA'], errors='coerce')
         aportaciones['PERIODO'] = aportaciones['FECHA'].apply(get_period)
 
-        tab1, tab4, tab3 = st.tabs(["Partidos", "Análisis de Contratos", "Datos"])
+        tab1, tab4, tab5, tab3 = st.tabs(["Partidos", "Análisis de Contratos", "Empresas y Representantes", "Datos"])
 
         with tab1:
             mostrar_tab_partidos(aportaciones)
-        
+
         with tab3:
             mostrar_tab_datos(aportaciones)
-        
+
         with tab4:
             mostrar_tab_contratos(aportaciones)
+
+        with tab5:
+            mostrar_tab_empresas(aportaciones)
     
     else:
         st.markdown("""
         ## Bienvenido al Rastreador de Donaciones
-        
-        ### Sistema de Carga Automática:
-        
-        El sistema intenta cargar automáticamente:
-        - **Aportaciones**: `./aportaciones.xlsx` (hoja 'BBDD')
-        - **Contratos**: `./contratos_completo_todas_columnas.xlsx`
-        
-        ### Personalización:
-        
-        Puede subir sus propios archivos usando la barra lateral para:
-        - Reemplazar los datos de aportaciones
-        - Reemplazar los datos de contratos
-        
-        ### Análisis Disponibles:
-        
+
+        ### 📂 Sistema de Carga de Datos:
+
+        **Archivos que se cargan automáticamente:**
+        - **Aportaciones**: `./donaciones.xlsx` (hoja 'BBDD')
+        - **Contratos**: `./contratos.xlsx`
+
+        **Archivo opcional (desde la barra lateral):**
+        - **Representantes Legales**: Subir manualmente para análisis de empresas
+
+        ### 🎯 Personalización:
+
+        Use la **barra lateral** para:
+        - ✅ Reemplazar los datos de aportaciones
+        - ✅ Reemplazar los datos de contratos
+        - ✅ Subir datos de representantes legales (para análisis de empresas)
+
+        ### 📊 Análisis Disponibles:
+
         1. **Partidos**: Análisis interactivo de partidos políticos
-        2. **Datos**: Visualización completa de datos y métricas
-        3. **Contratos**: Análisis de contratos post-electorales con alertas temporales
-        
-        ### Características:
-        
+        2. **Análisis de Contratos**: Contratos post-electorales con alertas temporales
+        3. **Empresas y Representantes**: ⭐ Nuevo - Relación entre empresas con contratos y donaciones de sus representantes
+        4. **Datos**: Visualización completa de datos y métricas
+
+        ### 🚀 Características:
+
         - Carga automática de archivos locales
         - Análisis en tiempo real
-        - Visualizaciones interactivas
+        - Visualizaciones interactivas (Plotly)
         - Detección de alertas temporales
-        - Exportación de resultados
-        
-        **Los datos se cargan automáticamente si están disponibles**
+        - Análisis de cédulas jurídicas
+        - Exportación de resultados (CSV/Excel)
+
+        **💡 Los datos se cargan automáticamente si están disponibles en la carpeta raíz**
         """)
     
     st.markdown("---")
