@@ -4,341 +4,193 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime
-import io
+
+MIN_CONTRATOS = 5
+MIN_DONACION = 50000
 
 
-class AnalizadorCedulasJuridicas:
-    """
-    Clase para analizar la relación entre cédulas jurídicas con múltiples contratos
-    y las donaciones de sus representantes legales
-    """
+def normalizar_representantes(representantes):
+    df = representantes.copy()
+    
+    # Mapeo de nombres de columnas
+    mapeo = {}
 
-    def __init__(self, df_contratos, df_aportaciones, df_representantes):
-        """
-        Inicializa el analizador
+    for col in df.columns:
+        col_lower = col.lower()
+        if 'cedula' in col_lower and 'juridica' in col_lower:
+            mapeo[col] = 'cedula_juridica'
+        elif 'cedula' in col_lower and 'identidad' in col_lower:
+            mapeo[col] = 'cedula_identidad'
+        elif 'nombre' in col_lower and ('empleado' in col_lower or 'representante' in col_lower):
+            mapeo[col] = 'nombre_representante'
+        elif 'clasificacion' in col_lower:
+            mapeo[col] = 'clasificacion'
+        elif 'nombre' in col_lower and 'empresa' in col_lower:
+            mapeo[col] = 'nombre_empresa'
 
-        Parámetros:
-        -----------
-        df_contratos : DataFrame con contratos gubernamentales
-        df_aportaciones : DataFrame con aportaciones políticas
-        df_representantes : DataFrame con representantes legales de empresas
-        """
-        self.df_contratos = df_contratos.copy()
-        self.df_aportaciones = df_aportaciones.copy()
-        self.df_representantes = df_representantes.copy()
+    df = df.rename(columns=mapeo)
 
-        # Normalizar columnas de representantes
-        self._normalizar_representantes()
-
-        # Preparar datos
-        self._preparar_datos()
-
-    def _normalizar_representantes(self):
-        """Normaliza las columnas del DataFrame de representantes"""
-        # Mapeo de nombres de columnas
-        mapeo = {}
-
-        for col in self.df_representantes.columns:
-            col_lower = col.lower()
-            if 'cedula' in col_lower and 'juridica' in col_lower:
-                mapeo[col] = 'cedula_juridica'
-            elif 'cedula' in col_lower and 'identidad' in col_lower:
-                mapeo[col] = 'cedula_identidad'
-            elif 'nombre' in col_lower and ('empleado' in col_lower or 'representante' in col_lower):
-                mapeo[col] = 'nombre_representante'
-            elif 'clasificacion' in col_lower:
-                mapeo[col] = 'clasificacion'
-            elif 'nombre' in col_lower and 'empresa' in col_lower:
-                mapeo[col] = 'nombre_empresa'
-
-        self.df_representantes = self.df_representantes.rename(columns=mapeo)
-
-        # Normalizar cédulas
-        if 'cedula_juridica' in self.df_representantes.columns:
-            self.df_representantes['cedula_juridica'] = (
-                self.df_representantes['cedula_juridica']
-                .astype(str)
-                .str.replace('-', '')
-                .str.strip()
-            )
-
-        if 'cedula_identidad' in self.df_representantes.columns:
-            self.df_representantes['cedula_identidad'] = (
-                self.df_representantes['cedula_identidad']
-                .astype(str)
-                .str.replace('-', '')
-                .str.strip()
-            )
-
-    def _preparar_datos(self):
-        """Prepara los datos de contratos y aportaciones"""
-        # Detectar y normalizar columnas de contratos
-        for col in self.df_contratos.columns:
-            col_lower = col.lower()
-            if 'cédula' in col_lower and 'proveedor' in col_lower:
-                self.df_contratos['cedula_proveedor'] = (
-                    self.df_contratos[col]
-                    .astype(str)
-                    .str.replace('-', '')
-                    .str.strip()
-                )
-                break
-            elif 'cedula' in col_lower and 'proveedor' in col_lower:
-                self.df_contratos['cedula_proveedor'] = (
-                    self.df_contratos[col]
-                    .astype(str)
-                    .str.replace('-', '')
-                    .str.strip()
-                )
-                break
-
-        # Normalizar cédulas en aportaciones
-        if 'CÉDULA' in self.df_aportaciones.columns:
-            self.df_aportaciones['cedula'] = (
-                self.df_aportaciones['CÉDULA']
-                .astype(str)
-                .str.replace('-', '')
-                .str.strip()
-            )
-
-    def analizar_empresas_contratos_donaciones(self, min_contratos=5, min_donacion=50000, partido=None):
-        """
-        Identifica empresas con múltiples contratos cuyos representantes han donado al partido
-        """
-        # 1. Contar contratos por empresa
-        contratos_por_empresa = (
-            self.df_contratos
-            .groupby('cedula_proveedor')
-            .size()
-            .reset_index(name='num_contratos')
+    # Normalizar cédulas
+    if 'cedula_juridica' in df.columns:
+        df['cedula_juridica'] = (
+            df['cedula_juridica']
+            .astype(str)
+            .str.replace('-', '')
+            .str.strip()
         )
 
-        # Filtrar empresas con suficientes contratos
-        empresas_interes = contratos_por_empresa[
-            contratos_por_empresa['num_contratos'] >= min_contratos
+    if 'cedula_identidad' in df.columns:
+        df['cedula_identidad'] = (
+            df['cedula_identidad']
+            .astype(str)
+            .str.replace('-', '')
+            .str.strip()
+        )
+    
+    return df
+
+def preparar_contratos(contratos):
+    df = contratos.copy()
+    
+    # Detectar y normalizar columnas de contratos
+    for col in df.columns:
+        col_lower = col.lower()
+        if 'cédula' in col_lower and 'proveedor' in col_lower:
+            df['cedula_proveedor'] = (
+                df[col]
+                .astype(str)
+                .str.replace('-', '')
+                .str.strip()
+            )
+            break
+        elif 'cedula' in col_lower and 'proveedor' in col_lower:
+            df['cedula_proveedor'] = (
+                df[col]
+                .astype(str)
+                .str.replace('-', '')
+                .str.strip()
+            )
+            break
+    
+    return df
+
+def preparar_aportaciones(aportaciones):
+    df = aportaciones.copy()
+    
+    # Normalizar cédulas en aportaciones
+    if 'CÉDULA' in df.columns:
+        df['cedula'] = (
+            df['CÉDULA']
+            .astype(str)
+            .str.replace('-', '')
+            .str.strip()
+        )
+    
+    return df
+
+def analizar_empresas(contratos, aportaciones, representantes):
+    contratos = preparar_contratos(contratos)
+    aportaciones = preparar_aportaciones(aportaciones)
+    representantes = normalizar_representantes(representantes)
+    
+    # 1. Contar contratos por empresa
+    contratos_por_empresa = (
+        contratos
+        .groupby('cedula_proveedor')
+        .size()
+        .reset_index(name='num_contratos')
+    )
+
+    # Filtrar empresas con suficientes contratos
+    empresas_interes = contratos_por_empresa[contratos_por_empresa['num_contratos'] >= MIN_CONTRATOS].copy()
+
+    # 2. Obtener representantes de estas empresas
+    representantes_empresas = representantes[representantes['cedula_juridica'].isin(empresas_interes['cedula_proveedor'])].copy()
+
+    # 3. Buscar donaciones de estos representantes
+    cedulas_representantes = set(representantes_empresas['cedula_identidad'].unique())
+
+    donaciones_representantes = aportaciones[aportaciones['cedula'].isin(cedulas_representantes)].copy()
+
+    # 4. Sumar donaciones por representante
+    col_monto = 'MONTO'
+    col_partido = 'PARTIDO POLÍTICO'
+
+    donaciones_agregadas = (
+        donaciones_representantes
+        .groupby(['cedula', col_partido])
+        .agg({
+            col_monto: 'sum',
+            'cedula': 'count'
+        })
+        .rename(columns={col_monto: 'total_donado', 'cedula': 'num_donaciones'})
+        .reset_index()
+    )
+    
+    donaciones_agregadas['total_donado'] = donaciones_agregadas['total_donado'].astype(int)
+
+    # Filtrar donaciones significativas
+    donaciones_significativas = donaciones_agregadas[donaciones_agregadas['total_donado'] >= MIN_DONACION]
+
+    # 5. Cruzar información
+    resultados = []
+
+    for _, empresa in empresas_interes.iterrows():
+        cedula_juridica = empresa['cedula_proveedor']
+        num_contratos = empresa['num_contratos']
+
+        # Obtener representantes de esta empresa
+        reps = representantes_empresas[
+            representantes_empresas['cedula_juridica'] == cedula_juridica
         ]
 
-        # 2. Obtener representantes de estas empresas
-        representantes_empresas = self.df_representantes[
-            self.df_representantes['cedula_juridica'].isin(empresas_interes['cedula_proveedor'])
-        ].copy()
+        for _, rep in reps.iterrows():
+            cedula_rep = rep['cedula_identidad']
 
-        # 3. Buscar donaciones de estos representantes
-        cedulas_representantes = set(representantes_empresas['cedula_identidad'].unique())
-
-        donaciones_representantes = self.df_aportaciones[
-            self.df_aportaciones['cedula'].isin(cedulas_representantes)
-        ].copy()
-
-        # Filtrar por partido si se especificó
-        if partido:
-            col_partido = 'PARTIDO POLÍTICO'
-            donaciones_representantes = donaciones_representantes[
-                donaciones_representantes[col_partido].str.upper() == partido.upper()
+            # Buscar donaciones de este representante
+            donaciones_rep = donaciones_significativas[
+                donaciones_significativas['cedula'] == cedula_rep
             ]
 
-        # 4. Sumar donaciones por representante
-        col_monto = 'MONTO'
-        col_partido = 'PARTIDO POLÍTICO'
+            if len(donaciones_rep) > 0:
+                for _, donacion in donaciones_rep.iterrows():
+                    resultado = {
+                        'cedula_juridica': cedula_juridica,
+                        'nombre_empresa': rep.get('nombre_empresa', 'N/A'),
+                        'num_contratos': num_contratos,
+                        'cedula_representante': cedula_rep,
+                        'nombre_representante': rep.get('nombre_representante', 'N/A'),
+                        'clasificacion_representante': rep.get('clasificacion', 'N/A'),
+                        'partido_donado': donacion[col_partido],
+                        'total_donado': donacion['total_donado'],
+                        'num_donaciones': donacion['num_donaciones']
+                    }
+                    resultados.append(resultado)
 
-        donaciones_agregadas = (
-            donaciones_representantes
-            .groupby(['cedula', col_partido])
-            .agg({
-                col_monto: 'sum',
-                'cedula': 'count'
-            })
-            .rename(columns={col_monto: 'total_donado', 'cedula': 'num_donaciones'})
-            .reset_index()
+    resultados = pd.DataFrame(resultados)
+
+    if len(resultados) > 0:
+        # Ordenar por número de contratos y monto donado
+        resultados = resultados.sort_values(
+            'total_donado',
+            ascending=[False]
         )
 
-        # Filtrar donaciones significativas
-        donaciones_significativas = donaciones_agregadas[
-            donaciones_agregadas['total_donado'] >= min_donacion
-        ]
+    return resultados
 
-        # 5. Cruzar información
-        resultados = []
-
-        for _, empresa in empresas_interes.iterrows():
-            cedula_juridica = empresa['cedula_proveedor']
-            num_contratos = empresa['num_contratos']
-
-            # Obtener representantes de esta empresa
-            reps = representantes_empresas[
-                representantes_empresas['cedula_juridica'] == cedula_juridica
-            ]
-
-            for _, rep in reps.iterrows():
-                cedula_rep = rep['cedula_identidad']
-
-                # Buscar donaciones de este representante
-                donaciones_rep = donaciones_significativas[
-                    donaciones_significativas['cedula'] == cedula_rep
-                ]
-
-                if len(donaciones_rep) > 0:
-                    for _, donacion in donaciones_rep.iterrows():
-                        resultado = {
-                            'cedula_juridica': cedula_juridica,
-                            'nombre_empresa': rep.get('nombre_empresa', 'N/A'),
-                            'num_contratos': num_contratos,
-                            'cedula_representante': cedula_rep,
-                            'nombre_representante': rep.get('nombre_representante', 'N/A'),
-                            'clasificacion_representante': rep.get('clasificacion', 'N/A'),
-                            'partido_donado': donacion[col_partido],
-                            'total_donado': donacion['total_donado'],
-                            'num_donaciones': donacion['num_donaciones']
-                        }
-                        resultados.append(resultado)
-
-        df_resultados = pd.DataFrame(resultados)
-
-        if len(df_resultados) > 0:
-            # Ordenar por número de contratos y monto donado
-            df_resultados = df_resultados.sort_values(
-                ['num_contratos', 'total_donado'],
-                ascending=[False, False]
-            )
-
-        return df_resultados
-
-
-def mostrar_tab_empresas(aportaciones):
-    """
-    Tab principal para análisis de cédulas jurídicas y representantes
-    """
+def mostrar_tab_empresas(donaciones, contratos, representantes):
     st.markdown("## Análisis de Empresas y Representantes Legales")
+    st.markdown("---")
 
-    st.markdown("""
-    Este análisis identifica **empresas (cédulas jurídicas)** con múltiples contratos gubernamentales
-    cuyos **representantes legales** han realizado donaciones significativas a partidos políticos.
-    """)
-
-    # Cargar contratos
-    contratos_raw = None
-    if 'contratos' in st.session_state:
-        contratos_raw = st.session_state['contratos']
-    else:
-        try:
-            contratos_raw = pd.read_excel('./contratos.xlsx')
-            st.session_state['contratos'] = contratos_raw
-        except:
-            st.warning("⚠️ No se pudo cargar el archivo de contratos")
-            return
-
-    # Verificar si hay datos de representantes
-    if 'representantes' not in st.session_state:
-        st.info("""
-        ### No hay datos de representantes legales cargados
-
-        **Para usar este análisis:**
-
-        1. Sube un archivo Excel desde la **barra lateral** (sección "🏢 Representantes Legales")
-
-        2. El archivo debe contener las siguientes columnas:
-           - `CEDULA_JURIDICA` o `Cédula Jurídica`: Identificación de la empresa
-           - `NOMBRE_EMPRESA`: Nombre de la empresa
-           - `NOMBRE_EMPLEADO` o `Nombre Representante`: Nombre del representante
-           - `CEDULA_IDENTIDAD` o `Cédula Identidad`: Cédula del representante
-           - `CLASIFICACION_EMPLEADO` (opcional): Tipo de empleado/representante
-
-        3. Una vez cargado, regresa a este tab para ejecutar el análisis
-        """)
-        return
-
-    # Obtener datos de representantes
-    df_representantes = st.session_state['representantes']
-
-    st.success(f"✅ Datos de representantes cargados: {len(df_representantes):,} registros")
-
-    # Mostrar preview colapsado
-    with st.expander("Vista previa de los datos de representantes"):
-        st.write("**Columnas encontradas:**")
-        st.write(", ".join(df_representantes.columns))
-        st.dataframe(df_representantes.head(10), use_container_width=True)
-
-    # Inicializar analizador
     try:
-        analizador = AnalizadorCedulasJuridicas(
-            df_contratos=contratos_raw,
-            df_aportaciones=aportaciones,
-            df_representantes=df_representantes
-        )
-
-        st.markdown("---")
-        st.markdown("### Configurar Análisis")
-
-        col_config1, col_config2, col_config3 = st.columns(3)
-
-        with col_config1:
-            min_contratos = st.number_input(
-                "Mínimo de contratos",
-                min_value=1,
-                max_value=100,
-                value=5,
-                help="Número mínimo de contratos que debe tener la empresa"
-            )
-
-        with col_config2:
-            min_donacion = st.number_input(
-                "Donación mínima (₡)",
-                min_value=0,
-                max_value=10000000,
-                value=50000,
-                step=10000,
-                help="Monto mínimo de donación para considerar significativa"
-            )
-
-        with col_config3:
-            # Obtener lista de partidos únicos
-            partidos_disponibles = sorted(aportaciones['PARTIDO POLÍTICO'].unique())
-            partido_filtro = st.selectbox(
-                "Filtrar por partido (opcional)",
-                options=['Todos'] + partidos_disponibles,
-                help="Analizar solo donaciones a un partido específico"
-            )
-
-        # Botón para ejecutar análisis
-        if st.button("Ejecutar Análisis", type="primary", use_container_width=True):
-            with st.spinner("Analizando datos..."):
-                partido_seleccionado = None if partido_filtro == 'Todos' else partido_filtro
-
-                resultados = analizador.analizar_empresas_contratos_donaciones(
-                    min_contratos=min_contratos,
-                    min_donacion=min_donacion,
-                    partido=partido_seleccionado
-                )
-
-                # Guardar resultados en session state
+        if 'resultados_empresas' not in st.session_state:
+            with st.spinner("🔍 Analizando datos de empresas y representantes..."):
+                resultados = analizar_empresas(contratos, donaciones, representantes)
                 st.session_state['resultados_empresas'] = resultados
+        
+        resultados = st.session_state['resultados_empresas']
 
-        # Mostrar resultados si existen
-        if 'resultados_empresas' in st.session_state:
-            resultados = st.session_state['resultados_empresas']
-
-            if len(resultados) > 0:
-                st.markdown("---")
-                st.markdown("### Resultados del Análisis")
-
-                # Métricas principales
-                col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-
-                with col_m1:
-                    st.metric("Total de Casos", len(resultados))
-
-                with col_m2:
-                    empresas_unicas = resultados['cedula_juridica'].nunique()
-                    st.metric("Empresas Únicas", empresas_unicas)
-
-                with col_m3:
-                    representantes_unicos = resultados['cedula_representante'].nunique()
-                    st.metric("Representantes Únicos", representantes_unicos)
-
-                with col_m4:
-                    total_donado = resultados['total_donado'].sum()
-                    st.metric("Total Donado", f"₡{total_donado:,.0f}")
-
+        if len(resultados) > 0:
                 # Tabs para diferentes visualizaciones
                 tab1, tab2, tab3, tab4 = st.tabs([
                     "📈 Visualizaciones",
@@ -359,19 +211,14 @@ def mostrar_tab_empresas(aportaciones):
                 with tab4:
                     mostrar_resumen_representantes(resultados)
 
-            else:
-                st.warning("⚠️ No se encontraron casos que cumplan los criterios especificados")
-                st.info("**Sugerencias:**\n- Reduzca el número mínimo de contratos\n- Reduzca el monto mínimo de donación\n- Intente con 'Todos' los partidos")
-
+        else:
+            st.warning("⚠️ No se encontraron casos que cumplan los criterios especificados")
+        
     except Exception as e:
         st.error(f"❌ Error al inicializar el analizador: {e}")
         st.exception(e)
 
-
 def mostrar_visualizaciones(resultados):
-    """Genera visualizaciones de los resultados"""
-
-    # 1. Top empresas por número de contratos
     st.markdown("#### Top 20 Empresas por Número de Contratos")
 
     top_empresas = (
@@ -445,37 +292,45 @@ def mostrar_visualizaciones(resultados):
         fig3.update_layout(height=500)
         st.plotly_chart(fig3, use_container_width=True)
 
-
 def mostrar_tabla_completa(resultados):
-    """Muestra tabla con todos los resultados"""
     st.markdown("#### Todos los Casos Encontrados")
 
     # Preparar datos para mostrar
     tabla_display = resultados.copy()
-    tabla_display['total_donado_fmt'] = tabla_display['total_donado'].apply(lambda x: f"₡{x:,.0f}")
 
     # Seleccionar columnas a mostrar
     columnas_mostrar = [
         'nombre_empresa',
         'num_contratos',
         'nombre_representante',
-        'clasificacion_representante',
         'partido_donado',
-        'total_donado_fmt',
+        'total_donado',
+        'clasificacion_representante',
         'num_donaciones'
     ]
 
-    tabla_final = tabla_display[columnas_mostrar].rename(columns={
+    tabla_final = tabla_display[columnas_mostrar].sort_values('total_donado', ascending=False)
+
+    tabla_final['total_donado'] = tabla_final['total_donado'].astype(int)
+    
+    tabla_final = tabla_final.rename(columns={
         'nombre_empresa': 'Empresa',
         'num_contratos': 'Contratos',
         'nombre_representante': 'Representante',
-        'clasificacion_representante': 'Clasificación',
         'partido_donado': 'Partido',
-        'total_donado_fmt': 'Total Donado',
+        'total_donado': 'Total Donado',
+        'clasificacion_representante': 'Clasificación',
         'num_donaciones': 'Nº Donaciones'
     })
-
-    st.dataframe(tabla_final, use_container_width=True, height=600)
+    st.dataframe(
+        tabla_final, 
+        use_container_width=True, 
+        column_config={
+            "total_donado": st.column_config.NumberColumn(
+                format="₡%.0f"
+            )
+        },
+        )
 
     # Botón de descarga
     csv = resultados.to_csv(index=False).encode('utf-8')
@@ -486,9 +341,7 @@ def mostrar_tabla_completa(resultados):
         mime='text/csv'
     )
 
-
 def mostrar_resumen_empresas(resultados):
-    """Muestra resumen agrupado por empresa"""
     st.markdown("#### Resumen por Empresa")
 
     resumen_empresa = (
@@ -500,34 +353,27 @@ def mostrar_resumen_empresas(resultados):
             'cedula_representante': 'count',
             'partido_donado': lambda x: ', '.join(sorted(set(x)))
         })
-        .rename(columns={'cedula_representante': 'num_representantes_donantes'})
         .reset_index()
-        .sort_values('num_contratos', ascending=False)
+        .sort_values('total_donado', ascending=False)
     )
-
-    resumen_empresa['total_donado_fmt'] = resumen_empresa['total_donado'].apply(lambda x: f"₡{x:,.0f}")
 
     st.dataframe(
         resumen_empresa[[
             'nombre_empresa',
             'num_contratos',
-            'num_representantes_donantes',
-            'total_donado_fmt',
+            'total_donado',
             'partido_donado'
         ]].rename(columns={
             'nombre_empresa': 'Empresa',
             'num_contratos': 'Contratos',
-            'num_representantes_donantes': 'Representantes que Donaron',
-            'total_donado_fmt': 'Total Donado',
+            'total_donado': 'Total Donado',
             'partido_donado': 'Partidos'
         }),
         use_container_width=True,
         height=600
     )
 
-
 def mostrar_resumen_representantes(resultados):
-    """Muestra resumen agrupado por representante"""
     st.markdown("#### Resumen por Representante")
 
     resumen_representante = (
@@ -544,20 +390,18 @@ def mostrar_resumen_representantes(resultados):
         .sort_values('total_donado', ascending=False)
     )
 
-    resumen_representante['total_donado_fmt'] = resumen_representante['total_donado'].apply(lambda x: f"₡{x:,.0f}")
-
     st.dataframe(
         resumen_representante[[
             'nombre_representante',
             'num_empresas',
             'num_donaciones',
-            'total_donado_fmt',
+            'total_donado',
             'partido_donado'
         ]].rename(columns={
             'nombre_representante': 'Representante',
             'num_empresas': 'Empresas Representadas',
             'num_donaciones': 'Nº Donaciones',
-            'total_donado_fmt': 'Total Donado',
+            'total_donado': 'Total Donado',
             'partido_donado': 'Partidos'
         }),
         use_container_width=True,

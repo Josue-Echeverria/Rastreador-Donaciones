@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-def create_party_color_map(parties):
+def create_party_color_map():
     color_map = {}
     color_map["ACCION CIUDADANA"] = '#bc2e2a'
     color_map["AGENDA DEMOCRATICA NACIONAL"] = '#f16c37'
@@ -134,6 +134,8 @@ def _donantes_destacados(aportaciones):
     cedula_counts = aportaciones['CÉDULA'].value_counts()
     cedula_amounts = aportaciones.groupby('CÉDULA')['MONTO'].sum()
     
+    st.session_state['cedula_amounts'] = cedula_amounts
+
     col1_don, col2_don = st.columns([2, 1])
     
     with col1_don:
@@ -146,15 +148,20 @@ def _donantes_destacados(aportaciones):
         }).reset_index(drop=True)
         amount_data.index = amount_data.index + 1
         
+        amount_data['Monto Total'] = amount_data['Monto Total'].astype(int)
+        amount_data['Cantidad de Donaciones'] = amount_data['Cantidad de Donaciones'].astype(int)
+        
         st.dataframe(
             amount_data,
             column_config={
-                "Monto Total": st.column_config.ProgressColumn(
+                "Monto Total": st.column_config.NumberColumn(
                     "Monto Total (₡)",
                     help="Monto total donado por cada cédula",
-                    min_value=0,
-                    max_value=int(amount_data['Monto Total'].max()),
-                    format="₡%.0f"
+                    format="₡%d"
+                ),
+                "Cantidad de Donaciones": st.column_config.NumberColumn(
+                    "Cantidad de Donaciones",
+                    format="%d"
                 )
             },
             use_container_width=True
@@ -253,33 +260,22 @@ def _distribucion_tipo_contribucion(aportaciones):
         st.warning("No hay datos de tipo de contribución disponibles")
 
 def mostrar_tab_partidos(aportaciones):
-    """Muestra la pestaña de análisis de partidos políticos"""
-    # Crear mapeo de colores consistente para los partidos
-    all_parties = aportaciones['PARTIDO POLÍTICO'].unique()
-    party_colors = create_party_color_map(all_parties)
+    party_colors = create_party_color_map()
 
     st.header("Análisis de Partidos Políticos")
     
-    # Sección 1: Ingresos Anuales
     _ingresos_anuales(aportaciones, party_colors)
     
-    # Sección 2: Distribución de Partidos
     _distribucion_partidos(aportaciones, party_colors)
     
-    # Separador
     st.divider()
     
-    # Sección 3: Donantes Destacados
     _donantes_destacados(aportaciones)
     
-    # Separador
     st.divider()
     
-    # Sección 4: Análisis por Tipo de Contribución
     st.header("Análisis por Tipo de Contribución")
     _analisis_tipo_contribucion(aportaciones)
     
-    # Sección 5: Distribución por Tipo de Contribución
     _distribucion_tipo_contribucion(aportaciones)
-
 

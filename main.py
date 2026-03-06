@@ -14,6 +14,10 @@ import os
 # Importar las tabs modularizadas
 from tabs import mostrar_tab_partidos, mostrar_tab_datos, mostrar_tab_contratos, mostrar_tab_empresas
 
+CONTRATOS_PATH = './contratos.xlsx'
+DONACIONES_PATH = './donaciones.xlsx'
+REPRESENTANTES_PATH = './representantes_juridicas.xlsx'
+
 # Configure page to use wide layout
 st.set_page_config(
     page_title="Rastreador de Donaciones",
@@ -41,26 +45,10 @@ st.markdown("""
 st.title("Rastreador de Donaciones - Análisis de Aportaciones")
 
 @st.cache_data
-def load_aportaciones_from_file(file_path):
+def load_file(file_path):
     if file_path is not None:
-        return pd.read_excel(file_path, sheet_name='BBDD')
+        return pd.read_excel(file_path)
     return None
-
-@st.cache_data
-def load_donaciones():
-    """Carga aportaciones desde archivo local"""
-    try:
-        return pd.read_excel('./donaciones.xlsx', sheet_name='BBDD')
-    except:
-        return None
-
-@st.cache_data
-def loading_contratos():
-    """Carga contratos desde archivo local"""
-    try:
-        return pd.read_excel('./contratos.xlsx')
-    except:
-        return None
 
 def get_period(year):
     if pd.isna(year):
@@ -164,21 +152,38 @@ def analizar_contratos_por_partido(df_contratos, df_donaciones, partido_seleccio
 
 def main():
     # Cargar datos locales automáticamente al inicio
+    donaciones = None
+    contratos = None
+    representantes = None
+
     if 'donaciones' not in st.session_state:
-        donaciones = load_donaciones()
+        donaciones = load_file(DONACIONES_PATH)
         if donaciones is not None:
             st.session_state['donaciones'] = donaciones
     
     if 'contratos' not in st.session_state:
-        contratos_local = loading_contratos()
-        if contratos_local is not None:
-            st.session_state['contratos'] = contratos_local
+        contratos = load_file(CONTRATOS_PATH)
+        if contratos is not None:
+            st.session_state['contratos'] = contratos
+
+    if 'representantes' not in st.session_state:
+        representantes = load_file(REPRESENTANTES_PATH)
+        if representantes is not None:
+            st.session_state['representantes'] = representantes
 
     with st.sidebar:
-        # Sección de aportaciones
-        st.markdown("### 📊 Aportaciones")
+        # Sección de donaciones
+        st.markdown("### 📊 Donaciones")
 
-        file_path = st.file_uploader("Subir archivo personalizado (Excel)", type=['xlsx'], key="aportaciones_upload")
+        donaciones_path = st.file_uploader("Subir archivo personalizado (Excel)", type=['xlsx'], key="donaciones_upload")
+        
+        if donaciones_path is not None:
+            try:
+                donaciones = load_file(donaciones_path)
+                st.session_state['donaciones'] = donaciones
+                st.info(f"📄 {donaciones_path.name}")
+            except Exception as e:
+                st.error(f"Error al cargar donaciones: {e}")
 
         st.markdown("---")
 
@@ -190,7 +195,7 @@ def main():
 
         if contratos_file is not None:
             try:
-                contratos = pd.read_excel(contratos_file)
+                contratos = load_file(contratos_file)
                 st.session_state['contratos'] = contratos
                 st.info(f"📄 {contratos_file.name}")
             except Exception as e:
@@ -202,117 +207,58 @@ def main():
         st.markdown("### 🏢 Representantes Legales")
 
         # Opción para subir archivo de representantes
-        representantes_file = st.file_uploader(
-            "Subir archivo personalizado (Excel)",
-            type=['xlsx'],
-            key="representantes_upload",
-            help="Archivo con cédulas jurídicas y sus representantes"
-        )
+        representantes_file = st.file_uploader("Subir archivo personalizado (Excel)", type=['xlsx'], key="representantes_upload")
 
         if representantes_file is not None:
             try:
-                representantes = pd.read_excel(representantes_file)
+                representantes = load_file(representantes_file)
                 st.session_state['representantes'] = representantes
                 st.info(f"📄 {representantes_file.name}")
                 st.caption(f"{len(representantes):,} registros")
             except Exception as e:
                 st.error(f"Error al cargar representantes: {e}")
-
-    # Determinar qué archivo de aportaciones usar
-    aportaciones = None
-    if file_path is not None:
-        # Usar archivo subido por el usuario
-        aportaciones = load_aportaciones_from_file(file_path)
-        st.success("Usando aportaciones subidas por el usuario")
-    elif 'donaciones' in st.session_state:
-        # Usar archivo local
-        aportaciones = st.session_state['donaciones']
     
-    if aportaciones is not None:
-        # Validación de cédulas: solo mantener registros con cédulas de 7, 8 o 9 dígitos
-        initial_count = len(aportaciones)
-        
-        # Limpiar cédulas: remover espacios, guiones y caracteres no numéricos
-        aportaciones['CÉDULA'] = aportaciones['CÉDULA'].astype(str).str.replace(r'[^0-9]', '', regex=True)
-        
-        # Filtrar cédulas válidas (7, 8 o 9 dígitos)
-        valid_cedula_mask = aportaciones['CÉDULA'].str.len().isin([7, 8, 9]) & aportaciones['CÉDULA'].str.isdigit()
-        aportaciones = aportaciones[valid_cedula_mask]
-        
-        # Validación de fechas si la columna existe
-        if 'FECHA' in aportaciones.columns:
-            aportaciones['FECHA'] = pd.to_datetime(aportaciones['FECHA'], errors='coerce', dayfirst=True)
-            # Eliminar registros con fechas inválidas
-            fecha_valida_mask = aportaciones['FECHA'].notna()
-            aportaciones = aportaciones[fecha_valida_mask]
-        
-        filtered_count = len(aportaciones)
-        excluded_count = initial_count - filtered_count
-
-        
-        active_aportaciones = aportaciones[~aportaciones['PARTIDO POLÍTICO'].str.endswith('(INACTIVO)', na=False)]
-        
-        party_contributions_count = active_aportaciones['PARTIDO POLÍTICO'].value_counts()
-        top_20 = party_contributions_count.head(20)
-        
-        aportaciones['FECHA'] = pd.to_datetime(aportaciones['FECHA'], errors='coerce')
-        aportaciones['PERIODO'] = aportaciones['FECHA'].apply(get_period)
-
-        tab1, tab4, tab5, tab3 = st.tabs(["Partidos", "Análisis de Contratos", "Empresas y Representantes", "Datos"])
-
-        with tab1:
-            mostrar_tab_partidos(aportaciones)
-
-        with tab3:
-            mostrar_tab_datos(aportaciones)
-
-        with tab4:
-            mostrar_tab_contratos(aportaciones)
-
-        with tab5:
-            mostrar_tab_empresas(aportaciones)
+    # Obtener datos de session_state
+    donaciones = st.session_state.get('donaciones')
+    contratos = st.session_state.get('contratos')
+    representantes = st.session_state.get('representantes')
     
-    else:
-        st.markdown("""
-        ## Bienvenido al Rastreador de Donaciones
-
-        ### 📂 Sistema de Carga de Datos:
-
-        **Archivos que se cargan automáticamente:**
-        - **Aportaciones**: `./donaciones.xlsx` (hoja 'BBDD')
-        - **Contratos**: `./contratos.xlsx`
-
-        **Archivo opcional (desde la barra lateral):**
-        - **Representantes Legales**: Subir manualmente para análisis de empresas
-
-        ### 🎯 Personalización:
-
-        Use la **barra lateral** para:
-        - ✅ Reemplazar los datos de aportaciones
-        - ✅ Reemplazar los datos de contratos
-        - ✅ Subir datos de representantes legales (para análisis de empresas)
-
-        ### 📊 Análisis Disponibles:
-
-        1. **Partidos**: Análisis interactivo de partidos políticos
-        2. **Análisis de Contratos**: Contratos post-electorales con alertas temporales
-        3. **Empresas y Representantes**: ⭐ Nuevo - Relación entre empresas con contratos y donaciones de sus representantes
-        4. **Datos**: Visualización completa de datos y métricas
-
-        ### 🚀 Características:
-
-        - Carga automática de archivos locales
-        - Análisis en tiempo real
-        - Visualizaciones interactivas (Plotly)
-        - Detección de alertas temporales
-        - Análisis de cédulas jurídicas
-        - Exportación de resultados (CSV/Excel)
-
-        **💡 Los datos se cargan automáticamente si están disponibles en la carpeta raíz**
-        """)
+    # Solo proceder si tenemos donaciones cargadas
+    if donaciones is None:
+        st.warning("⚠️ No hay datos de donaciones cargados. Por favor, suba un archivo.")
+        return
     
-    st.markdown("---")
-    st.markdown("**Rastreador de Donaciones** - Dashboard de Análisis Político")
+    # Limpiar cédulas: remover espacios, guiones y caracteres no numéricos
+    donaciones['CÉDULA'] = donaciones['CÉDULA'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+    
+    # Filtrar cédulas válidas (7, 8 o 9 dígitos)
+    valid_cedula_mask = donaciones['CÉDULA'].str.len().isin([7, 8, 9]) & donaciones['CÉDULA'].str.isdigit()
+    donaciones = donaciones[valid_cedula_mask]
+    
+    # Validación de fechas si la columna existe
+    if 'FECHA' in donaciones.columns:
+        donaciones['FECHA'] = pd.to_datetime(donaciones['FECHA'], errors='coerce', dayfirst=True)
+        # Eliminar registros con fechas inválidas
+        fecha_valida_mask = donaciones['FECHA'].notna()
+        donaciones = donaciones[fecha_valida_mask]
+            
+    donaciones['FECHA'] = pd.to_datetime(donaciones['FECHA'], errors='coerce')
+    donaciones['PERIODO'] = donaciones['FECHA'].apply(get_period)
+
+    tab1, tab4, tab5, tab3 = st.tabs(["Partidos", "Análisis de Contratos", "Empresas y Representantes", "Datos"])
+
+    with tab1:
+        mostrar_tab_partidos(donaciones)
+
+    with tab3:
+        mostrar_tab_datos(donaciones)
+
+    with tab4:
+        mostrar_tab_contratos(donaciones, contratos)
+
+    with tab5:
+        mostrar_tab_empresas(donaciones, contratos, representantes)
+
     
 
 if __name__ == "__main__":

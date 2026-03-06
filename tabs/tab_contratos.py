@@ -500,32 +500,14 @@ def _acumulacion_anual(contratos_temp):
     
     return contratos_por_año
 
-def mostrar_tab_contratos(aportaciones):
+def mostrar_tab_contratos(donaciones, contratos):
     # Usar contratos ya cargados o cargar desde la carpeta por defecto (caché siempre activo)
-    contratos_raw = None
-    if 'contratos' in st.session_state:
-        contratos_raw = st.session_state['contratos']
-    else:
-        try:
-            with st.spinner('Cargando archivo de contratos...'):
-                contratos_raw = pd.read_excel('./contratos.xlsx')
-                st.session_state['contratos'] = contratos_raw
-        except:
-            st.warning("No se pudo cargar el archivo de contratos desde './contratos.xlsx'")
-
-    if contratos_raw is not None:
-        contratos_prep = contratos_raw.copy()
+    if contratos is not None:
+        contratos_prep = contratos.copy()
             
-        donaciones_prep = preparar_donaciones(aportaciones)
+        donaciones_prep = preparar_donaciones(donaciones)
         
         if contratos_prep is not None and donaciones_prep is not None:
-            
-            # Encontrar coincidencias usando nombres directos de columnas
-            cedulas_contratos = set(contratos_prep['Cédula Proveedor'].astype(str).unique())
-            cedulas_donaciones = set(donaciones_prep['CÉDULA'].unique())
-            coincidencias = cedulas_contratos & cedulas_donaciones
-        
-            
             # Detectar alertas usando función local con ventana fija de 12 meses
             alertas = _detectar_alertas_temporales(contratos_prep, donaciones_prep, 12)
             
