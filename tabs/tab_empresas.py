@@ -72,6 +72,20 @@ def preparar_contratos(contratos):
             )
             break
     
+    # Detectar columna de número de contrato
+    for col in df.columns:
+        col_lower = col.lower()
+        if any(palabra in col_lower for palabra in ['nro', 'numero', 'num', 'number']) and 'contrato' in col_lower:
+            df['numero_contrato'] = df[col].astype(str)
+            break
+        elif 'contrato' in col_lower and ('id' in col_lower or 'identificador' in col_lower):
+            df['numero_contrato'] = df[col].astype(str)
+            break
+    else:
+        # Si no encuentra columna específica, crear una concatenación como backup
+        if 'cedula_proveedor' in df.columns:
+            df['numero_contrato'] = df.index.astype(str)
+    
     return df
 
 def preparar_aportaciones(aportaciones):
@@ -93,9 +107,10 @@ def analizar_empresas(contratos, aportaciones, representantes):
     aportaciones = preparar_aportaciones(aportaciones)
     representantes = normalizar_representantes(representantes)
     
-    # 1. Contar contratos por empresa
+    # 1. Contar contratos únicos por empresa
     contratos_por_empresa = (
         contratos
+        .drop_duplicates(subset=['cedula_proveedor', 'numero_contrato'])
         .groupby('cedula_proveedor')
         .size()
         .reset_index(name='num_contratos')
@@ -191,25 +206,8 @@ def mostrar_tab_empresas(donaciones, contratos, representantes):
         resultados = st.session_state['resultados_empresas']
 
         if len(resultados) > 0:
-                # Tabs para diferentes visualizaciones
-                tab1, tab2, tab3, tab4 = st.tabs([
-                    "📈 Visualizaciones",
-                    "📋 Tabla Completa",
-                    "🏢 Por Empresa",
-                    "👤 Por Representante"
-                ])
-
-                with tab1:
-                    mostrar_visualizaciones(resultados)
-
-                with tab2:
-                    mostrar_tabla_completa(resultados)
-
-                with tab3:
-                    mostrar_resumen_empresas(resultados)
-
-                with tab4:
-                    mostrar_resumen_representantes(resultados)
+            mostrar_visualizaciones(resultados)
+            mostrar_tabla_completa(resultados)
 
         else:
             st.warning("⚠️ No se encontraron casos que cumplan los criterios especificados")
@@ -301,11 +299,11 @@ def mostrar_tabla_completa(resultados):
     # Seleccionar columnas a mostrar
     columnas_mostrar = [
         'nombre_empresa',
-        'num_contratos',
         'nombre_representante',
-        'partido_donado',
-        'total_donado',
         'clasificacion_representante',
+        'partido_donado',
+        'num_contratos',
+        'total_donado',
         'num_donaciones'
     ]
 
@@ -315,11 +313,11 @@ def mostrar_tabla_completa(resultados):
     
     tabla_final = tabla_final.rename(columns={
         'nombre_empresa': 'Empresa',
-        'num_contratos': 'Contratos',
         'nombre_representante': 'Representante',
-        'partido_donado': 'Partido',
-        'total_donado': 'Total Donado',
         'clasificacion_representante': 'Clasificación',
+        'partido_donado': 'Partido',
+        'num_contratos': 'Contratos',
+        'total_donado': 'Total Donado',
         'num_donaciones': 'Nº Donaciones'
     })
     st.dataframe(
@@ -339,71 +337,4 @@ def mostrar_tabla_completa(resultados):
         data=csv,
         file_name='analisis_empresas_representantes.csv',
         mime='text/csv'
-    )
-
-def mostrar_resumen_empresas(resultados):
-    st.markdown("#### Resumen por Empresa")
-
-    resumen_empresa = (
-        resultados
-        .groupby(['cedula_juridica', 'nombre_empresa'])
-        .agg({
-            'num_contratos': 'first',
-            'total_donado': 'sum',
-            'cedula_representante': 'count',
-            'partido_donado': lambda x: ', '.join(sorted(set(x)))
-        })
-        .reset_index()
-        .sort_values('total_donado', ascending=False)
-    )
-
-    st.dataframe(
-        resumen_empresa[[
-            'nombre_empresa',
-            'num_contratos',
-            'total_donado',
-            'partido_donado'
-        ]].rename(columns={
-            'nombre_empresa': 'Empresa',
-            'num_contratos': 'Contratos',
-            'total_donado': 'Total Donado',
-            'partido_donado': 'Partidos'
-        }),
-        use_container_width=True,
-        height=600
-    )
-
-def mostrar_resumen_representantes(resultados):
-    st.markdown("#### Resumen por Representante")
-
-    resumen_representante = (
-        resultados
-        .groupby(['cedula_representante', 'nombre_representante'])
-        .agg({
-            'total_donado': 'sum',
-            'num_donaciones': 'sum',
-            'cedula_juridica': 'count',
-            'partido_donado': lambda x: ', '.join(sorted(set(x)))
-        })
-        .rename(columns={'cedula_juridica': 'num_empresas'})
-        .reset_index()
-        .sort_values('total_donado', ascending=False)
-    )
-
-    st.dataframe(
-        resumen_representante[[
-            'nombre_representante',
-            'num_empresas',
-            'num_donaciones',
-            'total_donado',
-            'partido_donado'
-        ]].rename(columns={
-            'nombre_representante': 'Representante',
-            'num_empresas': 'Empresas Representadas',
-            'num_donaciones': 'Nº Donaciones',
-            'total_donado': 'Total Donado',
-            'partido_donado': 'Partidos'
-        }),
-        use_container_width=True,
-        height=600
     )
