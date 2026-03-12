@@ -13,7 +13,7 @@ def _detectar_alertas_temporales(df_contratos, df_donaciones, ventana_meses=12):
     # Mostrar progreso
     with st.spinner('Procesando contratos y donaciones...'):
         # Formatear datos directamente en las columnas existentes
-        df_contratos['Fecha Notificación'] = pd.to_datetime(df_contratos['Fecha Notificación'], errors='coerce', dayfirst=True)
+        df_contratos['Fecha Notificación'] = pd.to_datetime(df_contratos['Fecha Notificación'], errors='coerce')
         df_contratos['Cédula Proveedor'] = df_contratos['Cédula Proveedor'].astype(str).str.replace(r'[^0-9]', '', regex=True)
         df_contratos = df_contratos.dropna(subset=['Fecha Notificación'])
         df_contratos = df_contratos[df_contratos['Cédula Proveedor'].str.len() > 0]
@@ -70,25 +70,6 @@ def _detectar_alertas_temporales(df_contratos, df_donaciones, ventana_meses=12):
     
     return alertas_agrupadas
 
-def preparar_donaciones(df_donaciones):
-    """Prepara y normaliza datos de donaciones"""
-    if df_donaciones is None or len(df_donaciones) == 0:
-        return None
-    
-    df = df_donaciones.copy()
-    
-    # Normalizar cédula
-    df['CÉDULA'] = df['CÉDULA'].astype(str).str.replace(r'[^0-9]', '', regex=True)
-    
-    # Convertir fechas si existe la columna FECHA
-    if 'FECHA' in df.columns:
-        df['FECHA'] = pd.to_datetime(df['FECHA'], errors='coerce', dayfirst=True)
-    
-    # Eliminar filas con cédulas vacías
-    df = df[df['CÉDULA'].str.len() > 0]
-    
-    return df
-
 def _graficos_alertas(alertas):
     """Muestra los gráficos de análisis de alertas"""
     # Distribución por partido
@@ -120,22 +101,16 @@ def _tabla_alertas(alertas):
     # Preparar datos para la tabla con anonimización
     tabla_alertas = alertas.copy()
     
-    # Crear mapeo anónimo de cédulas a IDs
-    cedulas_unicas = tabla_alertas['cedula'].unique()
-    mapeo_anonimo = {cedula: f"Persona {i+1}" for i, cedula in enumerate(cedulas_unicas)}
-    tabla_alertas['cedula_anonima'] = tabla_alertas['cedula'].map(mapeo_anonimo)
-    
     tabla_alertas['fecha_contrato_str'] = tabla_alertas['fecha_contrato'].dt.strftime('%Y-%m-%d')
-    tabla_alertas['monto_formateado'] = tabla_alertas['monto_total_donaciones'].apply(lambda x: f"₡{x:,.0f}")
     
     # Seleccionar y renombrar columnas para mostrar
     columnas = {
-        'cedula_anonima': 'ID Persona',
+        'cedula': 'Cédula',
         'nro_contrato': 'Número Contrato',
         'fecha_contrato_str': 'Fecha Contrato',
         'cantidad_donaciones': 'Cantidad Donaciones',
+        'monto_total_donaciones': 'Monto Total Donaciones',
         'partidos_donados': 'Partidos',
-        'monto_formateado': 'Monto Total'
     }
     
     tabla_display = tabla_alertas[list(columnas.keys())].rename(columns=columnas)
@@ -147,16 +122,17 @@ def _tabla_alertas(alertas):
             "Cantidad Donaciones": st.column_config.NumberColumn(
                 "Cantidad Donaciones",
                 help="Número de donaciones realizadas en el rango temporal",
-                format="%d"
+                format="%,d"
             ),
             "Partidos": st.column_config.TextColumn(
                 "Partidos",
                 help="Partidos políticos a los que se donó",
                 width="medium"
             ),
-            "Monto Total": st.column_config.TextColumn(
-                "Monto Total",
-                help="Suma total de todas las donaciones en el rango"
+            "Monto Total Donaciones": st.column_config.NumberColumn(
+                "Monto Total Donaciones (₡)",
+                help="Suma total de todas las donaciones en el rango",
+                format="₡%,d"
             )
         },
         use_container_width=True,
@@ -444,7 +420,7 @@ def _acumulacion_anual(contratos_temp):
     contratos_por_año = contratos_temp.groupby('year').size().reset_index(name='cantidad_contratos')
     
     # Calcular acumulación
-    contratos_por_año['donaciones'] = contratos_por_año['cantidad_contratos'].cumsum()
+    contratos_por_año['acumulado'] = contratos_por_año['cantidad_contratos'].cumsum()
     
     # Crear gráfico de línea con acumulación
     fig = go.Figure()
@@ -452,7 +428,7 @@ def _acumulacion_anual(contratos_temp):
     # Línea de acumulación
     fig.add_trace(go.Scatter(
         x=contratos_por_año['year'],
-        y=contratos_por_año['donaciones'],
+        y=contratos_por_año['acumulado'],
         mode='lines+markers',
         name='Contratos Acumulados',
         line=dict(color='#1f77b4', width=3),
@@ -504,39 +480,30 @@ def mostrar_tab_contratos(donaciones, contratos):
     # Usar contratos ya cargados o cargar desde la carpeta por defecto (caché siempre activo)
     if contratos is not None:
         contratos_prep = contratos.copy()
-            
-        donaciones_prep = preparar_donaciones(donaciones)
-        
+        donaciones_prep = donaciones.copy() 
+                    
         if contratos_prep is not None and donaciones_prep is not None:
+            
+            contratos_temp = contratos_prep.copy()
+            # Preparar datos para visualización temporal usando nombres directos
+            contratos_temp['fecha_parsed'] = pd.to_datetime(contratos_temp['Fecha Notificación'], errors='coerce')
+            contratos_temp['year'] = contratos_temp['fecha_parsed'].dt.year
+            
+            # Filtrar años válidos (remover valores nulos y años extremos)
+            contratos_temp = contratos_temp[
+                (contratos_temp['year'] >= 2000) & 
+                (contratos_temp['year'] <= datetime.now().year)
+            ]
+            _acumulacion_anual(contratos_temp)
+            _top_proveedores(contratos_prep)
+
             # Detectar alertas usando función local con ventana fija de 12 meses
             alertas = _detectar_alertas_temporales(contratos_prep, donaciones_prep, 12)
-            
             if len(alertas) > 0:
-                # Análisis temporal de contratos
                 st.subheader("Acumulación de Contratos en el Tiempo")
-                
-                # Preparar datos para visualización temporal usando nombres directos
-                contratos_temp = contratos_prep.copy()
-                contratos_temp['fecha_parsed'] = pd.to_datetime(contratos_temp['Fecha Notificación'], errors='coerce', dayfirst=True)
-                contratos_temp['year'] = contratos_temp['fecha_parsed'].dt.year
-                contratos_temp['month_year'] = contratos_temp['fecha_parsed'].dt.to_period('M')
-                
-                # Filtrar años válidos (remover valores nulos y años extremos)
-                contratos_temp = contratos_temp.dropna(subset=['year'])
-                contratos_temp = contratos_temp[
-                    (contratos_temp['year'] >= 2000) & 
-                    (contratos_temp['year'] <= datetime.now().year)
-                ]
 
-                _acumulacion_anual(contratos_temp)
-                
-                # Análisis de top proveedores
-                _top_proveedores(contratos_prep)
-                
-                # Mostrar estadísticas y visualizaciones
                 _graficos_alertas(alertas)
                 _tabla_alertas(alertas)
-
                 
             else:
                 st.info("No se detectaron alertas temporales en una ventana de 12 meses")

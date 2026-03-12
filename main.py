@@ -14,7 +14,7 @@ import os
 # Importar las tabs modularizadas
 from tabs import mostrar_tab_partidos, mostrar_tab_datos, mostrar_tab_contratos, mostrar_tab_empresas
 
-CONTRATOS_PATH = './contratos.xlsx'
+CONTRATOS_PATH = './contratos2.xlsx'
 DONACIONES_PATH = './donaciones.xlsx'
 REPRESENTANTES_PATH = './representantes_juridicas.xlsx'
 
@@ -64,91 +64,6 @@ def get_period(year):
         if periodo[0] <= year <= periodo[1]:
             return f'{periodo[0]}-{periodo[1]} ({partido})'
     return None
-
-def detectar_alertas_temporales(df_contratos, df_donaciones, ventana_meses=6):
-    """Detecta casos donde una donación y un contrato ocurren en menos de X meses"""
-    
-    if df_contratos is None or df_donaciones is None:
-        return pd.DataFrame()
-    
-    # Encontrar coincidencias
-    cedulas_contratos = set(df_contratos['cedula_proveedor'].unique())
-    cedulas_donaciones = set(df_donaciones['CÉDULA'].unique())
-    coincidencias = cedulas_contratos & cedulas_donaciones
-    
-    alertas = []
-    
-    for cedula in coincidencias:
-        donaciones = df_donaciones[df_donaciones['CÉDULA'] == cedula]
-        contratos = df_contratos[df_contratos['cedula_proveedor'] == cedula]
-        
-        for _, donacion in donaciones.iterrows():
-            for _, contrato in contratos.iterrows():
-                # Convertir a timestamp si es necesario para el cálculo
-                fecha_donacion = pd.to_datetime(donacion['FECHA'])
-                fecha_contrato = pd.to_datetime(contrato['fecha_notificacion'])
-                
-                # Calcular diferencia usando timedelta
-                diferencia_timedelta = abs(fecha_contrato - fecha_donacion)
-                diferencia_dias = diferencia_timedelta.days
-                diferencia_meses = diferencia_dias / 30.44
-                
-                if diferencia_meses <= ventana_meses:
-                    alerta = {
-                        'cedula': cedula,
-                        'fecha_donacion': fecha_donacion,
-                        'fecha_contrato': fecha_contrato,
-                        'partido_donado': donacion.get('PARTIDO POLÍTICO', 'N/A'),
-                        'monto_donacion': donacion.get('MONTO', 0),
-                        'diferencia_dias': diferencia_dias,
-                        'diferencia_meses': diferencia_meses,
-                        'donacion_antes': fecha_donacion < fecha_contrato,
-                        'año_donacion': fecha_donacion.year if pd.notna(fecha_donacion) else None,
-                        'año_contrato': fecha_contrato.year if pd.notna(fecha_contrato) else None,
-                        'nro_contrato': contrato.get('nro_contrato', 'N/A') if 'nro_contrato' in contrato else 'N/A'
-                    }
-                    
-                    if 'NOMBRE DEL CONTRIBUYENTE' in donacion:
-                        alerta['nombre_contribuyente'] = donacion['NOMBRE DEL CONTRIBUYENTE']
-                    
-                    alertas.append(alerta)
-    
-    return pd.DataFrame(alertas)
-
-def analizar_contratos_por_partido(df_contratos, df_donaciones, partido_seleccionado=None):
-    """Analiza contratos filtrados por partido político"""
-    
-    if df_contratos is None or df_donaciones is None:
-        return None, None
-    
-    if partido_seleccionado:
-        donaciones_partido = df_donaciones[
-            df_donaciones['PARTIDO POLÍTICO'].str.upper() == partido_seleccionado.upper()
-        ]
-        cedulas_partido = set(donaciones_partido['CÉDULA'].unique())
-        contratos_donantes = df_contratos[
-            df_contratos['cedula_proveedor'].isin(cedulas_partido)
-        ].copy()
-    else:
-        # Encontrar coincidencias generales
-        cedulas_contratos = set(df_contratos['cedula_proveedor'].unique())
-        cedulas_donaciones = set(df_donaciones['CÉDULA'].unique())
-        coincidencias = cedulas_contratos & cedulas_donaciones
-        contratos_donantes = df_contratos[
-            df_contratos['cedula_proveedor'].isin(coincidencias)
-        ].copy()
-    
-    if len(contratos_donantes) == 0:
-        return None, None
-    
-    # Agrupar por mes - Asegurar que las fechas sean válidas
-    contratos_validos = contratos_donantes.dropna(subset=['fecha_notificacion']).copy()
-    contratos_mensuales = contratos_validos.groupby(
-        pd.Grouper(key='fecha_notificacion', freq='ME')
-    ).size().reset_index()
-    contratos_mensuales.columns = ['fecha', 'cantidad_contratos']
-    
-    return contratos_donantes, contratos_mensuales
 
 def main():
     # Cargar datos locales automáticamente al inicio
@@ -244,7 +159,7 @@ def main():
             
     donaciones['FECHA'] = pd.to_datetime(donaciones['FECHA'], errors='coerce')
     donaciones['PERIODO'] = donaciones['FECHA'].apply(get_period)
-
+    
     tab1, tab4, tab5, tab3 = st.tabs(["Partidos", "Análisis de Contratos", "Empresas y Representantes", "Datos"])
 
     with tab1:

@@ -143,25 +143,25 @@ def _donantes_destacados(aportaciones):
         top_amounts = cedula_amounts.nlargest(20)
         amount_data = pd.DataFrame({
             'Cédula': top_amounts.index,
-            'Monto Total': top_amounts.values,
+            'Monto Total Donaciones': top_amounts.values,
             'Cantidad de Donaciones': cedula_counts.loc[top_amounts.index]
         }).reset_index(drop=True)
         amount_data.index = amount_data.index + 1
         
-        amount_data['Monto Total'] = amount_data['Monto Total'].astype(int)
+        amount_data['Monto Total Donaciones'] = amount_data['Monto Total Donaciones'].astype(int)
         amount_data['Cantidad de Donaciones'] = amount_data['Cantidad de Donaciones'].astype(int)
         
         st.dataframe(
             amount_data,
             column_config={
-                "Monto Total": st.column_config.NumberColumn(
-                    "Monto Total (₡)",
+                "Monto Total Donaciones": st.column_config.NumberColumn(
+                    "Monto Total Donaciones (₡)",
                     help="Monto total donado por cada cédula",
-                    format="₡%d"
+                    format="₡%,d"
                 ),
                 "Cantidad de Donaciones": st.column_config.NumberColumn(
                     "Cantidad de Donaciones",
-                    format="%d"
+                    format="%,d"
                 )
             },
             use_container_width=True

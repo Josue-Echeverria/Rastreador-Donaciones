@@ -46,7 +46,7 @@ pip install -r requirements.txt
 ### 3. Ejecutar la Aplicación
 
 ```bash
-streamlit run main.py
+python -m streamlit run main.py
 ```
 
 ### 4. Acceder a la Aplicación
