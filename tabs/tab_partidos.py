@@ -29,24 +29,19 @@ def create_party_color_map():
 
 def _ingresos_anuales(aportaciones, party_colors):
     """Visualiza los ingresos anuales por partido"""
-    active_aportaciones = aportaciones[~aportaciones['PARTIDO POLÍTICO'].str.endswith('(INACTIVO)', na=False)]
-    party_contributions_count = active_aportaciones['PARTIDO POLÍTICO'].value_counts()
-    
     aportaciones_valid_dates = aportaciones.dropna(subset=['FECHA'])
-    aportaciones_valid_dates['MONTH_YEAR'] = aportaciones_valid_dates['FECHA'].dt.to_period('M')
-    monthly_income = aportaciones_valid_dates.groupby(['PARTIDO POLÍTICO', 'MONTH_YEAR'])['MONTO'].sum().reset_index()
-    monthly_income['MONTH_YEAR'] = monthly_income['MONTH_YEAR'].dt.to_timestamp()
+    aportaciones_valid_dates['YEAR'] = aportaciones_valid_dates['FECHA'].dt.year
+
+    yearly_income = aportaciones_valid_dates.groupby(['PARTIDO POLÍTICO', 'YEAR'])['MONTO'].sum().reset_index()
+
+    top_parties_per_year = yearly_income.loc[yearly_income.groupby('YEAR')['MONTO'].nlargest(20).index.get_level_values(1)]
+
+    top_parties_per_year['MONTO'] = top_parties_per_year['MONTO'] / 1_000_000
+    top_parties_per_year['YEAR'] = top_parties_per_year['YEAR'].astype(str)
     
-    top_parties_list = party_contributions_count.head(20).index.tolist()
-    monthly_income_filtered = monthly_income[monthly_income['PARTIDO POLÍTICO'].isin(top_parties_list)].copy()
-    monthly_income_filtered['MONTO'] = monthly_income_filtered['MONTO'] / 1_000_000
-    monthly_income_filtered['YEAR'] = monthly_income_filtered['MONTH_YEAR'].dt.to_period('Y').astype(str)
-    
-    yearly_income = monthly_income_filtered.groupby(['PARTIDO POLÍTICO', 'YEAR'])['MONTO'].sum().reset_index()
-    
-    st.subheader("Ingresos Anuales por Partido")
+    st.subheader("Ingresos Anuales por Partido (Top 20 por Año)")
     fig_income = px.bar(
-        yearly_income, 
+        top_parties_per_year, 
         x='YEAR', 
         y='MONTO', 
         color='PARTIDO POLÍTICO',

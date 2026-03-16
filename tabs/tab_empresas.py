@@ -6,7 +6,7 @@ from plotly.subplots import make_subplots
 from datetime import datetime
 
 MIN_CONTRATOS = 5
-MIN_DONACION = 50000
+MIN_DONACION = 100000
 
 def analizar_empresas(contratos, aportaciones, representantes):
     contratos = contratos.copy()
@@ -35,7 +35,6 @@ def analizar_empresas(contratos, aportaciones, representantes):
 
     # 3. Buscar donaciones de estos representantes
     cedulas_representantes = set(representantes_empresas["CEDULA_IDENTIDAD"].unique())
-
     donaciones_representantes = aportaciones[aportaciones['CÉDULA'].isin(cedulas_representantes)].copy()
 
     # 4. Sumar donaciones por representante
@@ -116,6 +115,7 @@ def mostrar_tab_empresas(donaciones, contratos, representantes):
         if len(resultados) > 0:
             mostrar_visualizaciones(resultados)
             mostrar_tabla_completa(resultados)
+            mostrar_series_temporales(donaciones, contratos, resultados)
 
         else:
             st.warning("No se encontraron casos que cumplan los criterios especificados")
@@ -124,13 +124,77 @@ def mostrar_tab_empresas(donaciones, contratos, representantes):
         st.error(f"Error al inicializar el analizador: {e}")
         st.exception(e)
 
+def mostrar_series_temporales(donaciones, contratos, resultados):
+    st.markdown("#### Donaciones y Contratos en el Tiempo")
+
+    combinaciones = (
+        resultados[['cedula_representante', 'nombre_representante', 'cedula_juridica', 'nombre_empresa']]
+        .drop_duplicates()
+        .sort_values('nombre_representante')
+        .copy()
+    )
+    combinaciones['label'] = combinaciones.apply(
+        lambda r: f"{r['nombre_representante']} ({r['cedula_representante']}) Representante Legal de {r['nombre_empresa']} ({r['cedula_juridica']})",
+        axis=1
+    )
+
+    seleccion = st.selectbox(
+        "Representante y empresa",
+        combinaciones['label'].tolist(),
+        key='combo_series_empresas'
+    )
+    fila = combinaciones.loc[combinaciones['label'] == seleccion].iloc[0]
+
+    don_persona = donaciones.copy()
+    don_persona['CÉDULA'] = don_persona['CÉDULA'].astype(str).str.replace('-', '').str.strip()
+    don_persona['FECHA'] = pd.to_datetime(don_persona['FECHA'], errors='coerce', dayfirst=True)
+    serie_donaciones = (
+        don_persona[don_persona['CÉDULA'] == fila['cedula_representante']]
+        .dropna(subset=['FECHA'])
+        .groupby(pd.Grouper(key='FECHA', freq='M'))['MONTO']
+        .sum()
+        .reset_index()
+        .rename(columns={'FECHA': 'MES'})
+    )
+
+    contratos_empresa = contratos.copy()
+    contratos_empresa['Cédula Proveedor'] = contratos_empresa['Cédula Proveedor'].astype(str).str.replace('-', '').str.strip()
+    contratos_empresa['Fecha Notificación'] = pd.to_datetime(contratos_empresa['Fecha Notificación'], errors='coerce', dayfirst=True)
+    serie_contratos = (
+        contratos_empresa[contratos_empresa['Cédula Proveedor'] == fila['cedula_juridica']]
+        .dropna(subset=['Fecha Notificación'])
+        .groupby(pd.Grouper(key='Fecha Notificación', freq='M'))['Nro Contrato']
+        .nunique()
+        .reset_index(name='CONTRATOS')
+        .rename(columns={'Fecha Notificación': 'MES'})
+    )
+
+    if len(serie_donaciones) == 0 and len(serie_contratos) == 0:
+        st.info("No hay datos con fecha para esta combinación")
+        return
+
+    serie = pd.merge(serie_donaciones, serie_contratos, on='MES', how='outer').sort_values('MES').fillna(0)
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=serie['MES'], y=serie['MONTO'], name='Donaciones (₡)', marker_color='#3b82f6'))
+    fig.add_trace(go.Bar(x=serie['MES'], y=serie['CONTRATOS'], name='Contratos', yaxis='y2', marker_color='#ef4444', opacity=0.7))
+    fig.update_layout(
+        height=430,
+        barmode='group',
+        xaxis=dict(title='Fecha'),
+        yaxis=dict(title='Donaciones (₡)'),
+        yaxis2=dict(title='Contratos', overlaying='y', side='right'),
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='left', x=0)
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
 def mostrar_visualizaciones(resultados):
     st.markdown("#### Top 20 Empresas por Número de Contratos")
 
     top_empresas = (
         resultados
         .groupby(['cedula_juridica', 'nombre_empresa'])
-        .agg({'num_contratos': 'first', 'total_donado': 'sum'})
+        .agg({'num_contratos': 'first'})
         .reset_index()
         .nlargest(20, 'num_contratos')
     )
@@ -140,14 +204,10 @@ def mostrar_visualizaciones(resultados):
         y='nombre_empresa',
         x='num_contratos',
         orientation='h',
-        color='total_donado',
-        color_continuous_scale='Reds',
         labels={
             'nombre_empresa': 'Empresa',
-            'num_contratos': 'Número de Contratos',
-            'total_donado': 'Total Donado'
-        },
-        hover_data={'total_donado': ':,.0f'}
+            'num_contratos': 'Número de Contratos'
+        }
     )
 
     fig1.update_layout(height=600, yaxis={'categoryorder': 'total ascending'})
@@ -172,12 +232,9 @@ def mostrar_visualizaciones(resultados):
             y='nombre_representante',
             x='total_donado',
             orientation='h',
-            color='num_contratos',
-            color_continuous_scale='Blues',
             labels={
                 'nombre_representante': 'Representante',
-                'total_donado': 'Total Donado (₡)',
-                'num_contratos': 'Contratos'
+                'total_donado': 'Total Donado (₡)'
             }
         )
 
