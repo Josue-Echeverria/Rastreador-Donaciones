@@ -159,7 +159,7 @@ def mostrar_series_temporales(donaciones, contratos, resultados):
 
     contratos_empresa = contratos.copy()
     contratos_empresa['Cédula Proveedor'] = contratos_empresa['Cédula Proveedor'].astype(str).str.replace('-', '').str.strip()
-    contratos_empresa['Fecha Notificación'] = pd.to_datetime(contratos_empresa['Fecha Notificación'], errors='coerce', dayfirst=True)
+    contratos_empresa['Fecha Notificación'] = pd.to_datetime(contratos_empresa['Fecha Notificación'], errors='coerce')
     serie_contratos = (
         contratos_empresa[contratos_empresa['Cédula Proveedor'] == fila['cedula_juridica']]
         .dropna(subset=['Fecha Notificación'])
@@ -171,22 +171,55 @@ def mostrar_series_temporales(donaciones, contratos, resultados):
 
     if len(serie_donaciones) == 0 and len(serie_contratos) == 0:
         st.info("No hay datos con fecha para esta combinación")
+        
+    else:
+        serie = pd.merge(serie_donaciones, serie_contratos, on='MES', how='outer').sort_values('MES').fillna(0)
+
+        fig = go.Figure()
+        fig.add_trace(go.Bar(x=serie['MES'], y=serie['MONTO'], name='Donaciones (₡)', marker_color='#3b82f6'))
+        fig.add_trace(go.Bar(x=serie['MES'], y=serie['CONTRATOS'], name='Contratos', yaxis='y2', marker_color='#ef4444', opacity=0.7))
+        fig.update_layout(
+            height=430,
+            barmode='group',
+            xaxis=dict(title='Fecha'),
+            yaxis=dict(title='Donaciones (₡)'),
+            yaxis2=dict(title='Contratos', overlaying='y', side='right'),
+            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='left', x=0)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Mostrar contratos de la empresa seleccionada
+    st.markdown("#### Contratos de la Empresa Seleccionada")
+    
+    cedula_seleccionada = fila['cedula_juridica']
+    nombre_empresa_seleccionada = fila['nombre_empresa']
+
+    contratos_limpios = contratos.copy()
+    contratos_limpios['Cédula Proveedor'] = contratos_limpios['Cédula Proveedor'].astype(str).str.replace('-', '').str.strip()
+
+    contratos_filtrados = contratos_limpios[contratos_limpios['Cédula Proveedor'] == cedula_seleccionada].drop_duplicates(subset=['Nro Contrato'])
+
+    if contratos_filtrados.empty:
+        st.info("No se encontraron contratos para esta empresa.")
         return
 
-    serie = pd.merge(serie_donaciones, serie_contratos, on='MES', how='outer').sort_values('MES').fillna(0)
-
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=serie['MES'], y=serie['MONTO'], name='Donaciones (₡)', marker_color='#3b82f6'))
-    fig.add_trace(go.Bar(x=serie['MES'], y=serie['CONTRATOS'], name='Contratos', yaxis='y2', marker_color='#ef4444', opacity=0.7))
-    fig.update_layout(
-        height=430,
-        barmode='group',
-        xaxis=dict(title='Fecha'),
-        yaxis=dict(title='Donaciones (₡)'),
-        yaxis2=dict(title='Contratos', overlaying='y', side='right'),
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='left', x=0)
+    st.markdown(f"**Mostrando {len(contratos_filtrados)} contratos para {nombre_empresa_seleccionada} ({cedula_seleccionada})**")
+    
+    columnas_a_mostrar = {
+        'Nro Contrato': 'Número de Contrato',
+        'Identificador': 'Identificador',
+        'Fecha Notificación': 'Fecha de Notificación'
+    }
+    
+    tabla_contratos = contratos_filtrados[list(columnas_a_mostrar.keys())].rename(columns=columnas_a_mostrar)
+    
+    tabla_contratos['Fecha de Notificación'] = pd.to_datetime(tabla_contratos['Fecha de Notificación'], errors='coerce').dt.strftime('%Y-%m-%d')
+    
+    st.dataframe(
+        tabla_contratos,
+        use_container_width=True,
+        height=400
     )
-    st.plotly_chart(fig, use_container_width=True)
 
 def mostrar_visualizaciones(resultados):
     st.markdown("#### Top 20 Empresas por Número de Contratos")
@@ -312,3 +345,4 @@ def mostrar_tabla_completa(resultados):
         file_name='analisis_empresas_representantes.csv',
         mime='text/csv'
     )
+

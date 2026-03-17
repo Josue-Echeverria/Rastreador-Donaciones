@@ -18,10 +18,11 @@ def _detectar_alertas_temporales(df_contratos, df_donaciones, ventana_meses=12):
         df_contratos = df_contratos.dropna(subset=['Fecha Notificación'])
         df_contratos = df_contratos[df_contratos['Cédula Proveedor'].str.len() > 0]
         
-        # Preparar donaciones con fechas convertidas
+        # Preparar donaciones con fechas convertidas y filtrar por monto
         df_donaciones = df_donaciones.copy()
         df_donaciones['FECHA'] = pd.to_datetime(df_donaciones['FECHA'], errors='coerce')
         df_donaciones = df_donaciones.dropna(subset=['FECHA'])
+        df_donaciones = df_donaciones[df_donaciones['MONTO'] >= 100000]
         
         # Obtener conjunto de cédulas que aparecen en donaciones para filtrar
         cedulas_donaciones = set(df_donaciones['CÉDULA'].unique())
