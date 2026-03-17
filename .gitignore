@@ -15,5 +15,3 @@ tabs/__pycache__/
 
 # LibreOffice locks (optional)
 .~lock.*#
-
-*.xlsx

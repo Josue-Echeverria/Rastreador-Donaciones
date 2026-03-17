@@ -47,7 +47,11 @@ st.title("Rastreador de Donaciones - Análisis de Aportaciones")
 @st.cache_data
 def load_file(file_path):
     if file_path is not None:
-        return pd.read_excel(file_path)
+        try:
+            return pd.read_excel(file_path)
+        except FileNotFoundError:
+            st.warning(f"⚠️ No se encontró el archivo: {os.path.basename(file_path)}. Por favor, suba el archivo correspondiente.")
+            return None
     return None
 
 def get_period(year):

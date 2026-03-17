@@ -263,8 +263,8 @@ def mostrar_tabla_completa(resultados):
 
     # Seleccionar columnas a mostrar
     columnas_mostrar = [
-        'nombre_empresa',
         'nombre_representante',
+        'nombre_empresa',
         'clasificacion_representante',
         'partido_donado',
         'num_contratos',
@@ -277,8 +277,8 @@ def mostrar_tabla_completa(resultados):
     tabla_final['total_donado'] = tabla_final['total_donado'].astype(int)
     
     tabla_final = tabla_final.rename(columns={
-        'nombre_empresa': 'Empresa',
         'nombre_representante': 'Representante',
+        'nombre_empresa': 'Empresa',
         'clasificacion_representante': 'Clasificación',
         'partido_donado': 'Partido',
         'num_contratos': 'Contratos',
